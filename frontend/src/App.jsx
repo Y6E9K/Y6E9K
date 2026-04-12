@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import BoardGrid from './components/BoardGrid'
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 const RACK_SIZE = 7
 const TAB_LIMIT = 7
 const VALID_LETTER = /^[A-Za-zÇĞİIÖŞÜçğıiöşü?]$/
