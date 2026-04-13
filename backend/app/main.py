@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from .engine.board_layout import get_board_config
 from .engine.dictionary_loader import load_dictionary_folder
-from .engine.solver import find_best_moves, normalize_board
+from .engine.solver import generate_moves
 from .engine.tr_utils import tr_upper
 
 BASE_DIR = Path(__file__).resolve().parent.parent
