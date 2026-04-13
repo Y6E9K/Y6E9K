@@ -1,20 +1,44 @@
-from functools import lru_cache
 from pathlib import Path
-from typing import List, Literal, Optional, Union
+from typing import List, Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from .engine.board_layout import get_board_config
-from .engine.dictionary_loader import load_dictionary_folder
 from .engine.solver import generate_moves
-from .engine.tr_utils import tr_upper
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 
-app = FastAPI(title="Kelime Asistanı API", version="1.2.0")
+
+def load_dictionary_words() -> List[str]:
+    words: List[str] = []
+
+    if not DATA_DIR.exists():
+        return words
+
+    for file_path in DATA_DIR.glob("*"):
+      if file_path.is_file():
+            try:
+                content = file_path.read_text(encoding="utf-8", errors="ignore")
+                for line in content.splitlines():
+                    line = line.strip()
+                    if line:
+                        words.append(line)
+            except Exception:
+                continue
+
+    return words
+
+
+class SolveRequest(BaseModel):
+    boardType: str
+    board: List[List[Any]]
+    rack: List[str]
+
+
+app = FastAPI(title="Kelime Asistanı API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,57 +49,64 @@ app.add_middleware(
 )
 
 
-class SolveRequest(BaseModel):
-    boardType: Literal["9x9", "15x15"] = "15x15"
-    boardLetters: List[List[Optional[str]]] = Field(default_factory=list)
-    rack: Union[str, List[str]] = Field(default_factory=list)
-    limit: int = 1000
-
-
-@lru_cache(maxsize=1)
-def get_dictionary():
-    words, by_length, meta = load_dictionary_folder(str(DATA_DIR))
-    return words, by_length, meta
-
-
 @app.get("/")
 def root():
-    return {"ok": True, "name": "Kelime Asistanı API", "docs": "/docs"}
+    words = load_dictionary_words()
+    return {
+        "ok": True,
+        "name": "Kelime Asistanı API",
+        "docs": "/docs",
+        "wordCount": len(words),
+        "files": len(list(DATA_DIR.glob("*"))) if DATA_DIR.exists() else 0,
+    }
 
 
 @app.get("/api/health")
 def health():
-    words, _, meta = get_dictionary()
-    return {"ok": True, "wordCount": len(words), "files": meta["file_count"]}
+    words = load_dictionary_words()
+    return {
+        "ok": True,
+        "wordCount": len(words),
+        "files": len(list(DATA_DIR.glob("*"))) if DATA_DIR.exists() else 0,
+    }
 
 
 @app.get("/api/board/{board_type}")
-def board_meta(board_type: str):
-    config = get_board_config(board_type)
-    return {"boardType": board_type, "size": config["size"], "bonusGrid": config["bonus_grid"], "center": config["center"]}
+def get_board(board_type: str):
+    size = 9 if board_type == "9x9" else 15
+
+    if size == 15:
+        bonus_grid = [
+            [None, None, "K3", None, None, "H2", None, None, None, "H2", None, None, "K3", None, None],
+            [None, "H3", None, None, None, None, "H2", None, "H2", None, None, None, None, "H3", None],
+            ["K3", None, None, None, None, None, None, "K2", None, None, None, None, None, None, "K3"],
+            [None, None, None, "K2", None, None, None, None, None, None, None, "K2", None, None, None],
+            [None, None, None, None, "H3", None, None, None, None, None, "H3", None, None, None, None],
+            ["H2", None, None, None, None, "H2", None, None, None, "H2", None, None, None, None, "H2"],
+            [None, "H2", None, None, None, None, "H2", None, "H2", None, None, None, None, "H2", None],
+            [None, None, "K2", None, None, None, None, "START", None, None, None, None, "K2", None, None],
+            [None, "H2", None, None, None, None, "H2", None, "H2", None, None, None, None, "H2", None],
+            ["H2", None, None, None, None, "H2", None, None, None, "H2", None, None, None, None, "H2"],
+            [None, None, None, None, "H3", None, None, None, None, None, "H3", None, None, None, None],
+            [None, None, None, "K2", None, None, None, None, None, None, None, "K2", None, None, None],
+            ["K3", None, None, None, None, None, None, "K2", None, None, None, None, None, None, "K3"],
+            [None, "H3", None, None, None, None, "H2", None, "H2", None, None, None, None, "H3", None],
+            [None, None, "K3", None, None, "H2", None, None, None, "H2", None, None, "K3", None, None],
+        ]
+    else:
+        bonus_grid = [[None for _ in range(size)] for _ in range(size)]
+        bonus_grid[size // 2][size // 2] = "START"
+
+    return {
+        "boardType": board_type,
+        "size": size,
+        "bonusGrid": bonus_grid,
+        "center": [size // 2, size // 2],
+    }
 
 
 @app.post("/api/solve")
-def solve(req: SolveRequest):
-    words, by_length, _ = get_dictionary()
-    config = get_board_config(req.boardType)
-    size = config["size"]
-
-    raw_rack = req.rack if isinstance(req.rack, list) else list(req.rack)
-    rack = [tr_upper(ch) for ch in raw_rack if str(ch).strip()]
-
-    joker_count = sum(1 for ch in rack if ch == "?")
-    if joker_count > 2:
-        raise HTTPException(status_code=400, detail="En fazla 2 joker kullanılabilir.")
-
+def solve(payload: SolveRequest):
+    words = load_dictionary_words()
     suggestions = generate_moves(payload.board, payload.rack, words)
-        board,
-        config["bonus_grid"],
-        rack,
-        words,
-        by_length,
-        size,
-        tuple(config["center"]),
-        limit=max(1, min(req.limit, 1000)),
-    )
     return {"suggestions": suggestions}
