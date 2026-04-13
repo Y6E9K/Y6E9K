@@ -65,34 +65,8 @@ function cellClassName(cell, isPreview, isSelected) {
   return cls;
 }
 
-function buildPreviewCells(suggestion) {
-  if (!suggestion) return [];
-  const placements = suggestion.placements || suggestion.newTiles || [];
-  return placements.map((p) => ({
-    row: p.row,
-    col: p.col,
-    letter: p.letter || "",
-  }));
-}
-
 function cloneBoard(board) {
   return board.map((row) => row.map((cell) => ({ ...cell })));
-}
-
-function applySuggestionToBoard(board, suggestion) {
-  const next = cloneBoard(board);
-  const placements = suggestion?.placements || suggestion?.newTiles || [];
-  for (const p of placements) {
-    if (
-      typeof p.row === "number" &&
-      typeof p.col === "number" &&
-      next[p.row] &&
-      next[p.row][p.col]
-    ) {
-      next[p.row][p.col].letter = normalizeLetter(p.letter || "");
-    }
-  }
-  return next;
 }
 
 function createEmptyBoard(size) {
@@ -155,15 +129,71 @@ function createTabFromBoardData(boardType, boardData, name) {
   };
 }
 
+function buildPreviewCells(suggestion) {
+  if (!suggestion) return [];
+
+  const placements =
+    suggestion.placements ||
+    suggestion.newTiles ||
+    suggestion.tiles ||
+    suggestion.cells ||
+    [];
+
+  return placements
+    .filter(
+      (p) =>
+        p &&
+        typeof p.row === "number" &&
+        typeof p.col === "number"
+    )
+    .map((p) => ({
+      row: p.row,
+      col: p.col,
+      letter: normalizeLetter(
+        p.letter ||
+          p.char ||
+          p.value ||
+          ""
+      ),
+    }));
+}
+
+function applySuggestionToBoard(board, suggestion) {
+  const next = cloneBoard(board);
+
+  const placements =
+    suggestion?.placements ||
+    suggestion?.newTiles ||
+    suggestion?.tiles ||
+    suggestion?.cells ||
+    [];
+
+  for (const p of placements) {
+    if (
+      typeof p.row === "number" &&
+      typeof p.col === "number" &&
+      next[p.row] &&
+      next[p.row][p.col]
+    ) {
+      next[p.row][p.col].letter = normalizeLetter(
+        p.letter || p.char || p.value || ""
+      );
+    }
+  }
+
+  return next;
+}
+
 export default function App() {
   const [tabs, setTabs] = useState([]);
   const [activeTabId, setActiveTabId] = useState(null);
   const [newBoardType, setNewBoardType] = useState("15x15");
   const [loadingBoard, setLoadingBoard] = useState(false);
+  const [activeSuggestionKey, setActiveSuggestionKey] = useState(null);
+
   const rackRefs = useRef([]);
   const renameRefs = useRef({});
   const lastSuggestionTapRef = useRef({ key: null, time: 0 });
-  const recentTouchRef = useRef(0);
 
   const activeTab = useMemo(
     () => tabs.find((t) => t.id === activeTabId) || null,
@@ -196,6 +226,7 @@ export default function App() {
           tab.id === activeTab.id ? { ...tab, previewCells: [] } : tab
         )
       );
+      setActiveSuggestionKey(null);
     };
 
     document.addEventListener("pointerdown", handleOutsidePreview);
@@ -228,6 +259,7 @@ export default function App() {
       );
       setTabs((prev) => [...prev, newTab]);
       setActiveTabId(newTab.id);
+      setActiveSuggestionKey(null);
     } catch (err) {
       console.error(err);
       alert("Tahta oluşturulamadı.");
@@ -282,6 +314,7 @@ export default function App() {
       selectedCell: { row, col },
       previewCells: [],
     }));
+    setActiveSuggestionKey(null);
   }
 
   function focusBoardCell(row, col) {
@@ -447,6 +480,7 @@ export default function App() {
         loading: true,
         previewCells: [],
       }));
+      setActiveSuggestionKey(null);
 
       const payload = {
         boardType: activeTab.boardType,
@@ -491,13 +525,14 @@ export default function App() {
     }
   }
 
-  function previewSuggestion(suggestion) {
+  function previewSuggestion(suggestion, key = null) {
     if (!activeTab) return;
     const previewCells = buildPreviewCells(suggestion);
     updateActiveTab((tab) => ({
       ...tab,
       previewCells,
     }));
+    setActiveSuggestionKey(key);
   }
 
   function applySuggestion(suggestion) {
@@ -508,19 +543,20 @@ export default function App() {
       board: applySuggestionToBoard(tab.board, suggestion),
       previewCells: [],
     }));
+    setActiveSuggestionKey(null);
   }
 
   function handleSuggestionTap(suggestion, key) {
     const now = Date.now();
     const last = lastSuggestionTapRef.current;
 
-    if (last.key === key && now - last.time < 350) {
+    if (last.key === key && now - last.time < 400) {
       applySuggestion(suggestion);
       lastSuggestionTapRef.current = { key: null, time: 0 };
       return;
     }
 
-    previewSuggestion(suggestion);
+    previewSuggestion(suggestion, key);
     lastSuggestionTapRef.current = { key, time: now };
   }
 
@@ -717,39 +753,44 @@ export default function App() {
 
               <div className="suggestions-list">
                 {activeTab.suggestions.length ? (
-                  activeTab.suggestions.map((s, idx) => (
-                    <div
-                      key={idx}
-                      className="suggestion-item"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (Date.now() - recentTouchRef.current < 500) return;
-                        previewSuggestion(s);
-                      }}
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        applySuggestion(s);
-                      }}
-                      onTouchEnd={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        recentTouchRef.current = Date.now();
-                        handleSuggestionTap(s, idx);
-                      }}
-                    >
-                      <div className="suggestion-main">
-                        <strong>{s.word || s.kelime || "Kelime"}</strong>
-                        <span>{s.score ?? s.puan ?? 0} puan</span>
+                  activeTab.suggestions.map((s, idx) => {
+                    const suggestionKey = `${idx}-${s.word || s.kelime || "kelime"}`;
+
+                    return (
+                      <div
+                        key={suggestionKey}
+                        className={`suggestion-item ${
+                          activeSuggestionKey === suggestionKey ? "active" : ""
+                        }`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSuggestionTap(s, suggestionKey);
+                        }}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          applySuggestion(s);
+                        }}
+                        onTouchEnd={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleSuggestionTap(s, suggestionKey);
+                        }}
+                      >
+                        <div className="suggestion-main">
+                          <strong>{s.word || s.kelime || "Kelime"}</strong>
+                          <span>{s.score ?? s.puan ?? 0} puan</span>
+                        </div>
+
+                        <div className="suggestion-sub">
+                          <span>
+                            {s.direction || s.yon || "-"} •{" "}
+                            {typeof s.row === "number" ? s.row + 1 : "-"} /{" "}
+                            {typeof s.col === "number" ? s.col + 1 : "-"}
+                          </span>
+                        </div>
                       </div>
-                      <div className="suggestion-sub">
-                        <span>
-                          {s.direction || s.yon || "-"} •{" "}
-                          {typeof s.row === "number" ? s.row + 1 : "-"} /{" "}
-                          {typeof s.col === "number" ? s.col + 1 : "-"}
-                        </span>
-                      </div>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <div className="empty-state">Henüz öneri yok.</div>
                 )}
