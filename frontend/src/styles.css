@@ -325,6 +325,11 @@ body {
   background: #1d2940;
 }
 
+.suggestion-item.active {
+  background: #244a33;
+  border-color: rgba(121, 207, 130, 0.55);
+}
+
 .suggestion-main {
   display: flex;
   justify-content: space-between;
