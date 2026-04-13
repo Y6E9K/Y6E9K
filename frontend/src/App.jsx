@@ -54,11 +54,11 @@ function cellClassName(cell, isPreview, isSelected) {
 
   if (cell.letter) cls += " filled";
   else if (isPreview) cls += " preview";
-  else if (cell.bonus === "TW") cls += " bonus-tw";
-  else if (cell.bonus === "DW") cls += " bonus-dw";
-  else if (cell.bonus === "TL") cls += " bonus-tl";
-  else if (cell.bonus === "DL") cls += " bonus-dl";
-  else if (cell.bonus === "STAR") cls += " bonus-star";
+  else if (cell.bonus === "TW" || cell.bonus === "K3") cls += " bonus-tw";
+  else if (cell.bonus === "DW" || cell.bonus === "K2") cls += " bonus-dw";
+  else if (cell.bonus === "TL" || cell.bonus === "H3") cls += " bonus-tl";
+  else if (cell.bonus === "DL" || cell.bonus === "H2") cls += " bonus-dl";
+  else if (cell.bonus === "STAR" || cell.bonus === "START") cls += " bonus-star";
   else cls += " empty";
 
   if (isSelected) cls += " selected";
