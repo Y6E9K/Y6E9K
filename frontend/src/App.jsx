@@ -129,17 +129,17 @@ function createTabFromBoardData(boardType, boardData, name) {
   };
 }
 
-function buildPreviewCells(suggestion) {
+function extractPlacements(suggestion) {
   if (!suggestion) return [];
 
-  const placements =
+  const candidates =
     suggestion.placements ||
     suggestion.newTiles ||
     suggestion.tiles ||
     suggestion.cells ||
     [];
 
-  return placements
+  return candidates
     .filter(
       (p) =>
         p &&
@@ -149,35 +149,21 @@ function buildPreviewCells(suggestion) {
     .map((p) => ({
       row: p.row,
       col: p.col,
-      letter: normalizeLetter(
-        p.letter ||
-          p.char ||
-          p.value ||
-          ""
-      ),
+      letter: normalizeLetter(p.letter || p.char || p.value || ""),
     }));
+}
+
+function buildPreviewCells(suggestion) {
+  return extractPlacements(suggestion);
 }
 
 function applySuggestionToBoard(board, suggestion) {
   const next = cloneBoard(board);
-
-  const placements =
-    suggestion?.placements ||
-    suggestion?.newTiles ||
-    suggestion?.tiles ||
-    suggestion?.cells ||
-    [];
+  const placements = extractPlacements(suggestion);
 
   for (const p of placements) {
-    if (
-      typeof p.row === "number" &&
-      typeof p.col === "number" &&
-      next[p.row] &&
-      next[p.row][p.col]
-    ) {
-      next[p.row][p.col].letter = normalizeLetter(
-        p.letter || p.char || p.value || ""
-      );
+    if (next[p.row] && next[p.row][p.col]) {
+      next[p.row][p.col].letter = p.letter;
     }
   }
 
@@ -527,11 +513,14 @@ export default function App() {
 
   function previewSuggestion(suggestion, key = null) {
     if (!activeTab) return;
+
     const previewCells = buildPreviewCells(suggestion);
+
     updateActiveTab((tab) => ({
       ...tab,
       previewCells,
     }));
+
     setActiveSuggestionKey(key);
   }
 
@@ -543,6 +532,7 @@ export default function App() {
       board: applySuggestionToBoard(tab.board, suggestion),
       previewCells: [],
     }));
+
     setActiveSuggestionKey(null);
   }
 
