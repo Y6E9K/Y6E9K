@@ -129,37 +129,92 @@ function createTabFromBoardData(boardType, boardData, name) {
   };
 }
 
-function extractPlacements(suggestion) {
+function extractPlacements(suggestion, board = []) {
   if (!suggestion) return [];
 
-  const candidates =
+  const directPlacements =
     suggestion.placements ||
     suggestion.newTiles ||
     suggestion.tiles ||
     suggestion.cells ||
     [];
 
-  return candidates
-    .filter(
-      (p) =>
-        p &&
-        typeof p.row === "number" &&
-        typeof p.col === "number"
-    )
-    .map((p) => ({
-      row: p.row,
-      col: p.col,
-      letter: normalizeLetter(p.letter || p.char || p.value || ""),
-    }));
+  if (Array.isArray(directPlacements) && directPlacements.length) {
+    return directPlacements
+      .filter(
+        (p) =>
+          p &&
+          typeof p.row === "number" &&
+          typeof p.col === "number"
+      )
+      .map((p) => ({
+        row: p.row,
+        col: p.col,
+        letter: normalizeLetter(p.letter || p.char || p.value || ""),
+      }));
+  }
+
+  const word = String(
+    suggestion.word || suggestion.kelime || ""
+  ).toLocaleUpperCase("tr-TR");
+  const startRow = Number(suggestion.row);
+  const startCol = Number(suggestion.col);
+  const rawDir = String(
+    suggestion.direction || suggestion.yon || ""
+  ).toLocaleLowerCase("tr-TR");
+
+  if (!word || Number.isNaN(startRow) || Number.isNaN(startCol)) {
+    return [];
+  }
+
+  const isHorizontal =
+    rawDir.includes("yatay") ||
+    rawDir === "h" ||
+    rawDir === "horizontal" ||
+    rawDir === "right";
+
+  const isVertical =
+    rawDir.includes("dikey") ||
+    rawDir === "v" ||
+    rawDir === "vertical" ||
+    rawDir === "down";
+
+  if (!isHorizontal && !isVertical) {
+    return [];
+  }
+
+  const placements = [];
+
+  for (let i = 0; i < word.length; i++) {
+    const row = startRow + (isVertical ? i : 0);
+    const col = startCol + (isHorizontal ? i : 0);
+
+    if (!board[row] || !board[row][col]) continue;
+
+    const existingLetter = normalizeLetter(board[row][col].letter || "");
+    const nextLetter = normalizeLetter(word[i]);
+
+    if (!existingLetter) {
+      placements.push({
+        row,
+        col,
+        letter: nextLetter,
+      });
+    } else if (existingLetter !== nextLetter) {
+      return [];
+    }
+  }
+
+  return placements;
 }
 
-function buildPreviewCells(suggestion) {
-  return extractPlacements(suggestion);
+function buildPreviewCells(suggestion, board = []) {
+  return extractPlacements(suggestion, board);
 }
 
 function applySuggestionToBoard(board, suggestion) {
   const next = cloneBoard(board);
-  const placements = extractPlacements(suggestion);
+  const placements = extractPlacements(suggestion, board);
 
   for (const p of placements) {
     if (next[p.row] && next[p.row][p.col]) {
@@ -514,7 +569,7 @@ export default function App() {
   function previewSuggestion(suggestion, key = null) {
     if (!activeTab) return;
 
-    const previewCells = buildPreviewCells(suggestion);
+    const previewCells = buildPreviewCells(suggestion, activeTab.board);
 
     updateActiveTab((tab) => ({
       ...tab,
