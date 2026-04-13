@@ -347,8 +347,8 @@ body {
 }
 
 @media (max-width: 768px) {
-  .app-shell {
-    padding: 12px;
+  .board-cell {
+    border-radius: 8px;
   }
 
   .topbar {
