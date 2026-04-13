@@ -621,18 +621,21 @@ export default function App() {
   }
 
   function handleSuggestionTap(suggestion, key) {
-    const now = Date.now();
-    const last = lastSuggestionTapRef.current;
+  console.log("SUGGESTION_RAW =", suggestion);
+  console.log("PLACEMENTS =", extractPlacements(suggestion, activeTab?.board || []));
 
-    if (last.key === key && now - last.time < 400) {
-      applySuggestion(suggestion);
-      lastSuggestionTapRef.current = { key: null, time: 0 };
-      return;
-    }
+  const now = Date.now();
+  const last = lastSuggestionTapRef.current;
 
-    previewSuggestion(suggestion, key);
-    lastSuggestionTapRef.current = { key, time: now };
+  if (last.key === key && now - last.time < 400) {
+    applySuggestion(suggestion);
+    lastSuggestionTapRef.current = { key: null, time: 0 };
+    return;
   }
+
+  previewSuggestion(suggestion, key);
+  lastSuggestionTapRef.current = { key, time: now };
+}
 
   return (
     <div className="app-shell">
