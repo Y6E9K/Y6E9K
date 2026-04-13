@@ -130,10 +130,11 @@ function createTabFromBoardData(boardType, boardData, name) {
 }
 
 function parseDirection(raw) {
-  const value = String(raw || "").toLocaleLowerCase("tr-TR");
+  const value = String(raw || "").toLowerCase();
 
   if (
     value.includes("dikey") ||
+    value.includes("dıkey") ||
     value === "v" ||
     value === "vertical" ||
     value === "down"
@@ -176,21 +177,38 @@ function extractPlacements(suggestion, board = []) {
     suggestion.newTiles ||
     suggestion.tiles ||
     suggestion.cells ||
+    suggestion.placed ||
     [];
 
   if (Array.isArray(directPlacements) && directPlacements.length) {
     return directPlacements
+      .map((p) => ({
+        row:
+          typeof p.row === "number"
+            ? p.row
+            : typeof p.r === "number"
+            ? p.r
+            : typeof p.y === "number"
+            ? p.y
+            : null,
+        col:
+          typeof p.col === "number"
+            ? p.col
+            : typeof p.c === "number"
+            ? p.c
+            : typeof p.x === "number"
+            ? p.x
+            : null,
+        letter: normalizeLetter(
+          p.letter || p.char || p.value || p.tile || ""
+        ),
+      }))
       .filter(
         (p) =>
-          p &&
           typeof p.row === "number" &&
-          typeof p.col === "number"
-      )
-      .map((p) => ({
-        row: p.row,
-        col: p.col,
-        letter: normalizeLetter(p.letter || p.char || p.value || ""),
-      }));
+          typeof p.col === "number" &&
+          p.letter
+      );
   }
 
   const word = String(
@@ -621,21 +639,18 @@ export default function App() {
   }
 
   function handleSuggestionTap(suggestion, key) {
-  console.log("SUGGESTION_RAW =", suggestion);
-  console.log("PLACEMENTS =", extractPlacements(suggestion, activeTab?.board || []));
+    const now = Date.now();
+    const last = lastSuggestionTapRef.current;
 
-  const now = Date.now();
-  const last = lastSuggestionTapRef.current;
+    if (last.key === key && now - last.time < 400) {
+      applySuggestion(suggestion);
+      lastSuggestionTapRef.current = { key: null, time: 0 };
+      return;
+    }
 
-  if (last.key === key && now - last.time < 400) {
-    applySuggestion(suggestion);
-    lastSuggestionTapRef.current = { key: null, time: 0 };
-    return;
+    previewSuggestion(suggestion, key);
+    lastSuggestionTapRef.current = { key, time: now };
   }
-
-  previewSuggestion(suggestion, key);
-  lastSuggestionTapRef.current = { key, time: now };
-}
 
   return (
     <div className="app-shell">
