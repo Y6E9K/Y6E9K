@@ -129,6 +129,45 @@ function createTabFromBoardData(boardType, boardData, name) {
   };
 }
 
+function parseDirection(raw) {
+  const value = String(raw || "").toLocaleLowerCase("tr-TR");
+
+  if (
+    value.includes("dikey") ||
+    value === "v" ||
+    value === "vertical" ||
+    value === "down"
+  ) {
+    return "vertical";
+  }
+
+  if (
+    value.includes("yatay") ||
+    value === "h" ||
+    value === "horizontal" ||
+    value === "right"
+  ) {
+    return "horizontal";
+  }
+
+  return "";
+}
+
+function parsePositionString(position) {
+  const value = String(position || "");
+  const match = value.match(/(\d+)\s*\/\s*(\d+)/);
+
+  if (!match) {
+    return { row: null, col: null, direction: "" };
+  }
+
+  const row = Number(match[1]) - 1;
+  const col = Number(match[2]) - 1;
+  const direction = parseDirection(value);
+
+  return { row, col, direction };
+}
+
 function extractPlacements(suggestion, board = []) {
   if (!suggestion) return [];
 
@@ -157,49 +196,39 @@ function extractPlacements(suggestion, board = []) {
   const word = String(
     suggestion.word || suggestion.kelime || ""
   ).toLocaleUpperCase("tr-TR");
-  const startRow = Number(suggestion.row);
-  const startCol = Number(suggestion.col);
-  const rawDir = String(
-    suggestion.direction || suggestion.yon || ""
-  ).toLocaleLowerCase("tr-TR");
 
-  if (!word || Number.isNaN(startRow) || Number.isNaN(startCol)) {
-    return [];
+  let startRow =
+    typeof suggestion.row === "number" ? suggestion.row : Number(suggestion.row);
+  let startCol =
+    typeof suggestion.col === "number" ? suggestion.col : Number(suggestion.col);
+  let direction = parseDirection(suggestion.direction || suggestion.yon || "");
+
+  if ((Number.isNaN(startRow) || Number.isNaN(startCol) || !direction) && suggestion.position) {
+    const parsed = parsePositionString(suggestion.position);
+    if (Number.isNaN(startRow)) startRow = parsed.row;
+    if (Number.isNaN(startCol)) startCol = parsed.col;
+    if (!direction) direction = parsed.direction;
   }
 
-  const isHorizontal =
-    rawDir.includes("yatay") ||
-    rawDir === "h" ||
-    rawDir === "horizontal" ||
-    rawDir === "right";
-
-  const isVertical =
-    rawDir.includes("dikey") ||
-    rawDir === "v" ||
-    rawDir === "vertical" ||
-    rawDir === "down";
-
-  if (!isHorizontal && !isVertical) {
+  if (!word || Number.isNaN(startRow) || Number.isNaN(startCol) || !direction) {
     return [];
   }
 
   const placements = [];
 
   for (let i = 0; i < word.length; i++) {
-    const row = startRow + (isVertical ? i : 0);
-    const col = startCol + (isHorizontal ? i : 0);
+    const row = startRow + (direction === "vertical" ? i : 0);
+    const col = startCol + (direction === "horizontal" ? i : 0);
 
-    if (!board[row] || !board[row][col]) continue;
+    if (!board[row] || !board[row][col]) {
+      return [];
+    }
 
     const existingLetter = normalizeLetter(board[row][col].letter || "");
     const nextLetter = normalizeLetter(word[i]);
 
     if (!existingLetter) {
-      placements.push({
-        row,
-        col,
-        letter: nextLetter,
-      });
+      placements.push({ row, col, letter: nextLetter });
     } else if (existingLetter !== nextLetter) {
       return [];
     }
@@ -828,9 +857,10 @@ export default function App() {
 
                         <div className="suggestion-sub">
                           <span>
-                            {s.direction || s.yon || "-"} •{" "}
-                            {typeof s.row === "number" ? s.row + 1 : "-"} /{" "}
-                            {typeof s.col === "number" ? s.col + 1 : "-"}
+                            {String(s.direction || s.yon || s.position || "-")}
+                            {typeof s.row === "number" && typeof s.col === "number"
+                              ? ` • ${s.row + 1} / ${s.col + 1}`
+                              : ""}
                           </span>
                         </div>
                       </div>
