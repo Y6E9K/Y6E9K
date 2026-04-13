@@ -30,14 +30,19 @@ function getNextBoardNumber(tabs) {
 function bonusLabel(bonus) {
   switch (bonus) {
     case "TW":
+    case "K3":
       return "K3";
     case "DW":
+    case "K2":
       return "K2";
     case "TL":
+    case "H3":
       return "H3";
     case "DL":
+    case "H2":
       return "H2";
     case "STAR":
+    case "START":
       return "★";
     default:
       return "";
