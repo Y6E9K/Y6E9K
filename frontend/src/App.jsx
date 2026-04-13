@@ -95,7 +95,7 @@ function createTabFromBoardData(boardType, boardData, name) {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     name,
     boardType,
-    board: boardData.board || [],
+    board: normalizeBoardData(boardType, boardData),
     selectedCell: null,
     previewCells: [],
     rack: createEmptyRack(),
