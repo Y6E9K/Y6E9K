@@ -60,7 +60,6 @@ def solve(req: SolveRequest):
     words, by_length, _ = get_dictionary()
     config = get_board_config(req.boardType)
     size = config["size"]
-    board = normalize_board(req.boardLetters, size)
 
     raw_rack = req.rack if isinstance(req.rack, list) else list(req.rack)
     rack = [tr_upper(ch) for ch in raw_rack if str(ch).strip()]
