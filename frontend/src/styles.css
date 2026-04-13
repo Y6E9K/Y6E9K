@@ -240,6 +240,7 @@ body {
   font-weight: 800;
   pointer-events: none;
   user-select: none;
+  line-height: 1;
 }
 
 .board-cell-bonus {
@@ -249,7 +250,7 @@ body {
 
 .board-cell-preview-letter {
   color: #1e3a1f;
-  font-size: clamp(16px, 2.1vw, 28px);
+  font-size: clamp(14px, 1.8vw, 24px);
   z-index: 1;
 }
 
@@ -262,11 +263,15 @@ body {
   outline: 0;
   background: transparent;
   text-align: center;
-  font-size: clamp(16px, 2.1vw, 28px);
+  font-size: clamp(14px, 1.8vw, 24px);
   font-weight: 800;
   color: #243047;
   caret-color: transparent;
   z-index: 2;
+  padding: 0;
+  line-height: 1;
+  font-family: inherit;
+  -webkit-text-fill-color: currentColor;
 }
 
 .board-cell:not(.filled) .board-cell-input {
@@ -293,6 +298,9 @@ body {
   font-size: 22px;
   font-weight: 800;
   border: 1px solid rgba(0, 0, 0, 0.08);
+  line-height: 1;
+  padding: 0;
+  font-family: inherit;
 }
 
 .suggestions-list {
@@ -309,6 +317,8 @@ body {
   border-radius: 14px;
   padding: 12px;
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .suggestion-item:hover {
@@ -364,12 +374,13 @@ body {
   .board-cell-input,
   .board-cell-preview-letter,
   .board-cell-bonus {
-    font-size: 14px;
+    font-size: 12px;
+    line-height: 1;
   }
 
   .rack-input {
     min-height: 44px;
-    font-size: 20px;
+    font-size: 18px;
   }
 
   .board-panel {
