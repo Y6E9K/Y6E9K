@@ -184,9 +184,6 @@ export default function App() {
   );
 
   useEffect(() => {
-  }, []);
-
-  useEffect(() => {
     if (!tabs.length) {
       handleCreateBoard("15x15");
     }
