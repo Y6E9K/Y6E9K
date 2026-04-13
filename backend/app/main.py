@@ -78,9 +78,4 @@ def solve(req: SolveRequest):
         tuple(config["center"]),
         limit=max(1, min(req.limit, 1000)),
     )
-    return {
-        "boardType": req.boardType,
-        "size": size,
-        "rack": rack,
-        "suggestions": results,
-    }
+    return {"suggestions": suggestions}
