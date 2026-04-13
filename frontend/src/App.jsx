@@ -95,40 +95,13 @@ function applySuggestionToBoard(board, suggestion) {
   return next;
 }
 
-function createEmptyBoard(size, bonusesMap = {}) {
-  return Array.from({ length: size }, (_, row) =>
-    Array.from({ length: size }, (_, col) => ({
+function createEmptyBoard(size) {
+  return Array.from({ length: size }, () =>
+    Array.from({ length: size }, () => ({
       letter: "",
-      bonus: bonusesMap[`${row},${col}`] || "NORMAL",
+      bonus: "NORMAL",
     }))
   );
-}
-
-function normalizeBonuses(rawBonuses) {
-  const map = {};
-
-  if (!rawBonuses) return map;
-
-  if (Array.isArray(rawBonuses)) {
-    for (const item of rawBonuses) {
-      if (
-        item &&
-        typeof item.row === "number" &&
-        typeof item.col === "number"
-      ) {
-        map[`${item.row},${item.col}`] = item.bonus || item.type || "NORMAL";
-      }
-    }
-    return map;
-  }
-
-  if (typeof rawBonuses === "object") {
-    for (const [key, value] of Object.entries(rawBonuses)) {
-      map[key] = typeof value === "string" ? value : value?.bonus || "NORMAL";
-    }
-  }
-
-  return map;
 }
 
 function normalizeBoardData(boardType, boardData) {
@@ -296,18 +269,33 @@ export default function App() {
     }));
   }
 
+  function focusBoardCell(row, col) {
+    const nextInput = document.querySelector(`[data-cell="${row}-${col}"]`);
+    nextInput?.focus();
+  }
+
   function handleBoardCellInput(row, col, value) {
     if (!activeTab) return;
+
+    const boardWidth = activeTab.boardType === "9x9" ? 9 : 15;
 
     updateActiveTab((tab) => {
       const nextBoard = cloneBoard(tab.board);
       nextBoard[row][col].letter = value || "";
+
+      const nextCol = Math.min(col + 1, boardWidth - 1);
+
       return {
         ...tab,
         board: nextBoard,
-        selectedCell: { row, col },
+        selectedCell: { row, col: nextCol },
       };
     });
+
+    setTimeout(() => {
+      const nextCol = Math.min(col + 1, boardWidth - 1);
+      focusBoardCell(row, nextCol);
+    }, 0);
   }
 
   function handleBoardCellBackspace(row, col) {
@@ -325,14 +313,20 @@ export default function App() {
         };
       }
 
-      const prevCol = col > 0 ? col - 1 : 0;
+      const prevCol = Math.max(col - 1, 0);
       nextBoard[row][prevCol].letter = "";
+
       return {
         ...tab,
         board: nextBoard,
         selectedCell: { row, col: prevCol },
       };
     });
+
+    setTimeout(() => {
+      const prevCol = Math.max(col - 1, 0);
+      focusBoardCell(row, prevCol);
+    }, 0);
   }
 
   function focusRack(index) {
@@ -610,6 +604,7 @@ export default function App() {
                       )}
 
                       <input
+                        data-cell={`${rowIndex}-${colIndex}`}
                         className="board-cell-input"
                         value={cell.letter || ""}
                         maxLength={1}
@@ -640,7 +635,8 @@ export default function App() {
                           );
                         }}
                         onKeyDown={(e) => {
-                          if (e.key === "Backspace" && !cell.letter) {
+                          if (e.key === "Backspace") {
+                            e.preventDefault();
                             handleBoardCellBackspace(rowIndex, colIndex);
                           }
                         }}
@@ -725,7 +721,7 @@ export default function App() {
             </section>
           </aside>
         </main>
-            ) : (
+      ) : (
         <div className="empty-page">Tahta yükleniyor...</div>
       )}
     </div>
