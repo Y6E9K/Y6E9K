@@ -150,14 +150,21 @@ function normalizeBoardData(boardType, boardData) {
     );
   }
 
+  if (Array.isArray(boardData?.bonusGrid) && boardData.bonusGrid.length) {
+    return boardData.bonusGrid.map((row) =>
+      row.map((bonus) => ({
+        letter: "",
+        bonus: bonus || "NORMAL",
+      }))
+    );
+  }
+
   const size =
     boardData?.size ||
     boardData?.boardSize ||
     (boardType === "9x9" ? 9 : 15);
 
-  const bonuses = normalizeBonuses(boardData?.bonuses);
-
-  return createEmptyBoard(size, bonuses);
+  return createEmptyBoard(size);
 }
 
 function createTabFromBoardData(boardType, boardData, name) {
