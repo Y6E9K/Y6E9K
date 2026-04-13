@@ -68,7 +68,7 @@ def solve(req: SolveRequest):
     if joker_count > 2:
         raise HTTPException(status_code=400, detail="En fazla 2 joker kullanılabilir.")
 
-    results = find_best_moves(
+    suggestions = generate_moves(payload.board, payload.rack, words)
         board,
         config["bonus_grid"],
         rack,
