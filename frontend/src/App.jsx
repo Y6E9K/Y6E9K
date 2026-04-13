@@ -90,6 +90,71 @@ function applySuggestionToBoard(board, suggestion) {
   return next;
 }
 
+function createEmptyBoard(size, bonusesMap = {}) {
+  return Array.from({ length: size }, (_, row) =>
+    Array.from({ length: size }, (_, col) => ({
+      letter: "",
+      bonus: bonusesMap[`${row},${col}`] || "NORMAL",
+    }))
+  );
+}
+
+function normalizeBonuses(rawBonuses) {
+  const map = {};
+
+  if (!rawBonuses) return map;
+
+  if (Array.isArray(rawBonuses)) {
+    for (const item of rawBonuses) {
+      if (
+        item &&
+        typeof item.row === "number" &&
+        typeof item.col === "number"
+      ) {
+        map[`${item.row},${item.col}`] = item.bonus || item.type || "NORMAL";
+      }
+    }
+    return map;
+  }
+
+  if (typeof rawBonuses === "object") {
+    for (const [key, value] of Object.entries(rawBonuses)) {
+      map[key] = typeof value === "string" ? value : value?.bonus || "NORMAL";
+    }
+  }
+
+  return map;
+}
+
+function normalizeBoardData(boardType, boardData) {
+  if (Array.isArray(boardData?.board) && boardData.board.length) {
+    return boardData.board.map((row) =>
+      row.map((cell) => ({
+        letter: cell?.letter || "",
+        bonus: cell?.bonus || "NORMAL",
+      }))
+    );
+  }
+
+  if (Array.isArray(boardData?.cells) && boardData.cells.length) {
+    return boardData.cells.map((row) =>
+      row.map((cell) => ({
+        letter: cell?.letter || "",
+        bonus: cell?.bonus || "NORMAL",
+      }))
+    );
+  }
+
+  const size =
+    boardData?.size ||
+    boardData?.boardSize ||
+    (boardType === "9x9" ? 9 : 15);
+
+  const bonuses = normalizeBonuses(boardData?.bonuses);
+
+  return createEmptyBoard(size, bonuses);
+}
+
 function createTabFromBoardData(boardType, boardData, name) {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
