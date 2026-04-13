@@ -651,10 +651,9 @@ export default function App() {
             </section>
           </aside>
         </main>
-      ) : (
+            ) : (
         <div className="empty-page">Tahta yükleniyor...</div>
       )}
     </div>
   );
-}
 }
