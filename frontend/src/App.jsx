@@ -162,6 +162,8 @@ export default function App() {
   const [loadingBoard, setLoadingBoard] = useState(false);
   const rackRefs = useRef([]);
   const renameRefs = useRef({});
+  const lastSuggestionTapRef = useRef({ key: null, time: 0 });
+  const recentTouchRef = useRef(0);
 
   const activeTab = useMemo(
     () => tabs.find((t) => t.id === activeTabId) || null,
@@ -176,8 +178,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const clickAway = () => {
+    const handleOutsidePreview = (event) => {
       if (!activeTab) return;
+
+      const target = event.target;
+      if (
+        target.closest(".suggestion-item") ||
+        target.closest(".board-cell") ||
+        target.closest(".rack-input") ||
+        target.closest(".card button")
+      ) {
+        return;
+      }
+
       setTabs((prev) =>
         prev.map((tab) =>
           tab.id === activeTab.id ? { ...tab, previewCells: [] } : tab
@@ -185,8 +198,10 @@ export default function App() {
       );
     };
 
-    window.addEventListener("click", clickAway);
-    return () => window.removeEventListener("click", clickAway);
+    document.addEventListener("pointerdown", handleOutsidePreview);
+    return () => {
+      document.removeEventListener("pointerdown", handleOutsidePreview);
+    };
   }, [activeTab]);
 
   async function fetchBoard(boardType) {
@@ -495,6 +510,20 @@ export default function App() {
     }));
   }
 
+  function handleSuggestionTap(suggestion, key) {
+    const now = Date.now();
+    const last = lastSuggestionTapRef.current;
+
+    if (last.key === key && now - last.time < 350) {
+      applySuggestion(suggestion);
+      lastSuggestionTapRef.current = { key: null, time: 0 };
+      return;
+    }
+
+    previewSuggestion(suggestion);
+    lastSuggestionTapRef.current = { key, time: now };
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -694,11 +723,18 @@ export default function App() {
                       className="suggestion-item"
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (Date.now() - recentTouchRef.current < 500) return;
                         previewSuggestion(s);
                       }}
                       onDoubleClick={(e) => {
                         e.stopPropagation();
                         applySuggestion(s);
+                      }}
+                      onTouchEnd={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        recentTouchRef.current = Date.now();
+                        handleSuggestionTap(s, idx);
                       }}
                     >
                       <div className="suggestion-main">
