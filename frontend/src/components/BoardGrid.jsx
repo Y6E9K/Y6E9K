@@ -16,7 +16,7 @@ function bonusLabel(bonus) {
       return "H2";
     case "STAR":
     case "START":
-      return "★";
+      return "★2";
     default:
       return "";
   }
