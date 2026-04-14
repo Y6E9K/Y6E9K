@@ -2,11 +2,119 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from typing import Iterable, List, Dict, Tuple, Set, Optional
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-TR_LETTERS = set("ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ")
 DIR_RIGHT = "YATAY"
 DIR_DOWN = "DIKEY"
+
+TR_UPPER_MAP = str.maketrans(
+    {
+        "a": "A",
+        "b": "B",
+        "c": "C",
+        "ç": "Ç",
+        "d": "D",
+        "e": "E",
+        "f": "F",
+        "g": "G",
+        "ğ": "Ğ",
+        "h": "H",
+        "ı": "I",
+        "i": "İ",
+        "j": "J",
+        "k": "K",
+        "l": "L",
+        "m": "M",
+        "n": "N",
+        "o": "O",
+        "ö": "Ö",
+        "p": "P",
+        "r": "R",
+        "s": "S",
+        "ş": "Ş",
+        "t": "T",
+        "u": "U",
+        "ü": "Ü",
+        "v": "V",
+        "y": "Y",
+        "z": "Z",
+        "q": "Q",
+        "w": "W",
+        "x": "X",
+    }
+)
+
+TR_LOWER_MAP = str.maketrans(
+    {
+        "A": "a",
+        "B": "b",
+        "C": "c",
+        "Ç": "ç",
+        "D": "d",
+        "E": "e",
+        "F": "f",
+        "G": "g",
+        "Ğ": "ğ",
+        "H": "h",
+        "I": "ı",
+        "İ": "i",
+        "J": "j",
+        "K": "k",
+        "L": "l",
+        "M": "m",
+        "N": "n",
+        "O": "o",
+        "Ö": "ö",
+        "P": "p",
+        "R": "r",
+        "S": "s",
+        "Ş": "ş",
+        "T": "t",
+        "U": "u",
+        "Ü": "ü",
+        "V": "v",
+        "Y": "y",
+        "Z": "z",
+    }
+)
+
+TR_LETTERS = set("ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ?")
+
+LETTER_SCORES = {
+    "A": 1,
+    "B": 3,
+    "C": 4,
+    "Ç": 4,
+    "D": 3,
+    "E": 1,
+    "F": 7,
+    "G": 5,
+    "Ğ": 8,
+    "H": 5,
+    "I": 2,
+    "İ": 1,
+    "J": 10,
+    "K": 1,
+    "L": 1,
+    "M": 2,
+    "N": 1,
+    "O": 2,
+    "Ö": 7,
+    "P": 5,
+    "R": 1,
+    "S": 2,
+    "Ş": 4,
+    "T": 1,
+    "U": 2,
+    "Ü": 3,
+    "V": 7,
+    "Y": 3,
+    "Z": 4,
+    "?": 0,
+}
+
+LETTER_MULTIPLIERS = {"H2": 2, "H3": 3}
+WORD_MULTIPLIERS = {"K2": 2, "K3": 3, "START": 2}
 
 
 @dataclass
@@ -23,16 +131,26 @@ class Move:
     overlap: int
 
 
+def tr_upper(text: str) -> str:
+    return str(text).translate(TR_UPPER_MAP).upper()
+
+
+def tr_lower(text: str) -> str:
+    return str(text).translate(TR_LOWER_MAP).lower()
+
+
 def normalize_letter(ch: str) -> str:
-    return ch[:1].upper().replace("İ", "İ")
+    if not ch:
+        return ""
+    return tr_upper(str(ch)[0])
 
 
 def normalize_word(word: str) -> str:
-    return "".join(normalize_letter(c) for c in word if c.strip())
+    return "".join(normalize_letter(c) for c in str(word) if str(c).strip())
 
 
 def is_valid_word(word: str) -> bool:
-    return len(word) >= 2 and all(c in TR_LETTERS for c in word)
+    return len(word) >= 2 and all(c in TR_LETTERS and c != "?" for c in word)
 
 
 def get_board_size(board: List[List[dict]]) -> int:
@@ -49,13 +167,21 @@ def in_bounds(board: List[List[dict]], row: int, col: int) -> bool:
     return 0 <= row < size and 0 <= col < size
 
 
-def get_cell_letter(board: List[List[dict]], row: int, col: int) -> str:
+def get_cell(board: List[List[dict]], row: int, col: int) -> dict:
     if not in_bounds(board, row, col):
-        return ""
+        return {"letter": "", "bonus": None}
     cell = board[row][col]
     if isinstance(cell, dict):
-        return normalize_letter(str(cell.get("letter", "") or ""))
-    return normalize_letter(str(cell or ""))
+        return {"letter": normalize_letter(cell.get("letter", "") or ""), "bonus": cell.get("bonus")}
+    return {"letter": normalize_letter(cell or ""), "bonus": None}
+
+
+def get_cell_letter(board: List[List[dict]], row: int, col: int) -> str:
+    return get_cell(board, row, col)["letter"]
+
+
+def get_cell_bonus(board: List[List[dict]], row: int, col: int) -> Optional[str]:
+    return get_cell(board, row, col).get("bonus")
 
 
 def has_any_tiles(board: List[List[dict]]) -> bool:
@@ -70,8 +196,8 @@ def has_any_tiles(board: List[List[dict]]) -> bool:
 
 
 def iter_dictionary_words(dictionary: Iterable[str]) -> List[str]:
-    words = []
-    seen = set()
+    words: List[str] = []
+    seen: Set[str] = set()
     for raw in dictionary:
         word = normalize_word(str(raw))
         if word in seen:
@@ -99,8 +225,13 @@ def board_letters_counter(board: List[List[dict]]) -> Counter:
 
 def candidate_word_possible(word: str, rack: Counter, board_letters: Counter) -> bool:
     available = rack + board_letters
-    need = Counter(word)
-    return all(available[ch] >= count for ch, count in need.items())
+    joker_count = available.get("?", 0)
+    deficit = 0
+    for ch, count in Counter(word).items():
+        have = available.get(ch, 0)
+        if have < count:
+            deficit += count - have
+    return deficit <= joker_count
 
 
 def board_main_word(board, row, col, direction, placed_letters):
@@ -108,7 +239,7 @@ def board_main_word(board, row, col, direction, placed_letters):
 
     r, c = row, col
     while in_bounds(board, r - dr, c - dc):
-        prev = placed_letters.get((r - dr, c - dc)) or get_cell_letter(board, r - dr, c - dc)
+        prev = placed_letters.get((r - dr, c - dc), {}).get("letter") or get_cell_letter(board, r - dr, c - dc)
         if not prev:
             break
         r -= dr
@@ -116,7 +247,7 @@ def board_main_word(board, row, col, direction, placed_letters):
 
     chars = []
     while in_bounds(board, r, c):
-        ch = placed_letters.get((r, c)) or get_cell_letter(board, r, c)
+        ch = placed_letters.get((r, c), {}).get("letter") or get_cell_letter(board, r, c)
         if not ch:
             break
         chars.append(ch)
@@ -133,7 +264,7 @@ def build_cross_word(board, row, col, letter, direction, placed_letters):
 
     r, c = row, col
     while in_bounds(board, r - dr, c - dc):
-        prev = placed_letters.get((r - dr, c - dc)) or get_cell_letter(board, r - dr, c - dc)
+        prev = placed_letters.get((r - dr, c - dc), {}).get("letter") or get_cell_letter(board, r - dr, c - dc)
         if not prev:
             break
         r -= dr
@@ -144,7 +275,7 @@ def build_cross_word(board, row, col, letter, direction, placed_letters):
         if r == row and c == col:
             ch = letter
         else:
-            ch = placed_letters.get((r, c)) or get_cell_letter(board, r, c)
+            ch = placed_letters.get((r, c), {}).get("letter") or get_cell_letter(board, r, c)
         if not ch:
             break
         chars.append(ch)
@@ -159,6 +290,7 @@ def touches_existing_neighbors(board, row, col, direction):
         neighbors = [(row - 1, col), (row + 1, col)]
     else:
         neighbors = [(row, col - 1), (row, col + 1)]
+
     return any(get_cell_letter(board, r, c) for r, c in neighbors if in_bounds(board, r, c))
 
 
@@ -170,16 +302,6 @@ def word_passes_center(word_len, row, col, direction, center):
         if (r, c) == (cr, cc):
             return True
     return False
-
-
-def can_build_with_rack(word, board_letters, rack):
-    needed = Counter()
-    for ch, existing in zip(word, board_letters):
-        if not existing:
-            needed[ch] += 1
-        elif existing != ch:
-            return False
-    return all(rack[ch] >= count for ch, count in needed.items())
 
 
 def collect_line_letters(board, row, col, direction, word_len):
@@ -195,8 +317,10 @@ def collect_line_letters(board, row, col, direction, word_len):
 
 def has_blocking_prefix_suffix(board, row, col, direction, word_len):
     dr, dc = (0, 1) if direction == DIR_RIGHT else (1, 0)
+
     before_r, before_c = row - dr, col - dc
     after_r, after_c = row + dr * word_len, col + dc * word_len
+
     if in_bounds(board, before_r, before_c) and get_cell_letter(board, before_r, before_c):
         return True
     if in_bounds(board, after_r, after_c) and get_cell_letter(board, after_r, after_c):
@@ -204,8 +328,9 @@ def has_blocking_prefix_suffix(board, row, col, direction, word_len):
     return False
 
 
-def get_anchor_cells(board):
-    anchors = set()
+def get_anchor_cells(board: List[List[dict]]) -> Set[Tuple[int, int]]:
+    anchors: Set[Tuple[int, int]] = set()
+
     if not has_any_tiles(board):
         anchors.add(get_center(board))
         return anchors
@@ -220,7 +345,7 @@ def get_anchor_cells(board):
     return anchors
 
 
-def possible_starts_for_anchor(word_len, anchor_row, anchor_col, direction):
+def possible_starts_for_anchor(word_len: int, anchor_row: int, anchor_col: int, direction: str) -> List[Tuple[int, int]]:
     starts = []
     for i in range(word_len):
         row = anchor_row - (i if direction == DIR_DOWN else 0)
@@ -229,17 +354,98 @@ def possible_starts_for_anchor(word_len, anchor_row, anchor_col, direction):
     return starts
 
 
+def assign_rack_usage(word: str, line_letters: List[str], rack: Counter) -> Optional[Dict[int, bool]]:
+    remaining = rack.copy()
+    joker_positions: Dict[int, bool] = {}
+
+    for i, ch in enumerate(word):
+        existing = line_letters[i]
+        if existing:
+            if existing != ch:
+                return None
+            continue
+
+        if remaining.get(ch, 0) > 0:
+            remaining[ch] -= 1
+            joker_positions[i] = False
+        elif remaining.get("?", 0) > 0:
+            remaining["?"] -= 1
+            joker_positions[i] = True
+        else:
+            return None
+
+    return joker_positions
+
+
+def letter_score(letter: str, is_joker: bool = False) -> int:
+    if is_joker:
+        return 0
+    return LETTER_SCORES.get(letter, 0)
+
+
+def score_word_with_placements(
+    board: List[List[dict]],
+    coords: List[Tuple[int, int]],
+    placed_info: Dict[Tuple[int, int], Dict[str, object]],
+) -> int:
+    word_multiplier = 1
+    total = 0
+
+    for row, col in coords:
+        existing_letter = get_cell_letter(board, row, col)
+        placed = placed_info.get((row, col))
+
+        if placed:
+            ch = str(placed["letter"])
+            is_joker = bool(placed.get("joker", False))
+            bonus = get_cell_bonus(board, row, col)
+            l_mult = LETTER_MULTIPLIERS.get(str(bonus), 1)
+            w_mult = WORD_MULTIPLIERS.get(str(bonus), 1)
+            total += letter_score(ch, is_joker) * l_mult
+            word_multiplier *= w_mult
+        else:
+            total += letter_score(existing_letter, False)
+
+    return total * word_multiplier
+
+
+def collect_word_coords(board, row, col, direction, placed_letters):
+    dr, dc = (0, 1) if direction == DIR_RIGHT else (1, 0)
+
+    r, c = row, col
+    while in_bounds(board, r - dr, c - dc):
+        prev = placed_letters.get((r - dr, c - dc), {}).get("letter") or get_cell_letter(board, r - dr, c - dc)
+        if not prev:
+            break
+        r -= dr
+        c -= dc
+
+    coords = []
+    while in_bounds(board, r, c):
+        ch = placed_letters.get((r, c), {}).get("letter") or get_cell_letter(board, r, c)
+        if not ch:
+            break
+        coords.append((r, c))
+        r += dr
+        c += dc
+    return coords
+
+
 def validate_move(board, dictionary_set, word, row, col, direction, rack):
     line_letters = collect_line_letters(board, row, col, direction, len(word))
     if line_letters is None:
         return None
+
     if has_blocking_prefix_suffix(board, row, col, direction, len(word)):
         return None
-    if not can_build_with_rack(word, line_letters, rack):
+
+    joker_positions = assign_rack_usage(word, line_letters, rack)
+    if joker_positions is None:
         return None
 
-    placed = []
-    placed_map = {}
+    placed: List[Dict[str, object]] = []
+    placed_map: Dict[Tuple[int, int], Dict[str, object]] = {}
+
     interaction = 0
     overlap = 0
 
@@ -254,16 +460,16 @@ def validate_move(board, dictionary_set, word, row, col, direction, rack):
             overlap += 1
             interaction += 1
         else:
-            placed.append({"row": r, "col": c, "letter": ch})
-            placed_map[(r, c)] = ch
+            info = {"row": r, "col": c, "letter": ch, "joker": bool(joker_positions.get(i, False))}
+            placed.append(info)
+            placed_map[(r, c)] = info
             if touches_existing_neighbors(board, r, c, direction):
                 interaction += 1
 
     if not placed:
         return None
 
-    board_has_tiles_now = has_any_tiles(board)
-    if board_has_tiles_now:
+    if has_any_tiles(board):
         if interaction == 0 and overlap == 0:
             return None
     else:
@@ -271,29 +477,48 @@ def validate_move(board, dictionary_set, word, row, col, direction, rack):
             return None
 
     main_word = board_main_word(board, row, col, direction, placed_map)
-    if main_word != word or main_word not in dictionary_set:
+    if main_word != word:
+        return None
+    if main_word not in dictionary_set:
         return None
 
-    cross_words = []
-    created_words = [main_word]
+    cross_words: List[str] = []
+    created_words: List[str] = [main_word]
+
+    main_coords = collect_word_coords(board, row, col, direction, placed_map)
+    total_score = score_word_with_placements(board, main_coords, placed_map)
 
     for tile in placed:
-        cross = build_cross_word(board, tile["row"], tile["col"], tile["letter"], direction, placed_map)
+        cross = build_cross_word(
+            board,
+            int(tile["row"]),
+            int(tile["col"]),
+            str(tile["letter"]),
+            direction,
+            placed_map,
+        )
         if len(cross) > 1:
             if cross not in dictionary_set:
                 return None
             cross_words.append(cross)
             created_words.append(cross)
 
-    score = len(word) + sum(len(w) for w in cross_words)
+            cross_direction = DIR_DOWN if direction == DIR_RIGHT else DIR_RIGHT
+            cross_coords = collect_word_coords(board, int(tile["row"]), int(tile["col"]), cross_direction, placed_map)
+            total_score += score_word_with_placements(board, cross_coords, placed_map)
+
+    clean_placed = [
+        {"row": int(item["row"]), "col": int(item["col"]), "letter": str(item["letter"]), "joker": bool(item["joker"])}
+        for item in placed
+    ]
 
     return Move(
         word=word,
         row=row,
         col=col,
         direction=direction,
-        score=score,
-        placed=placed,
+        score=total_score,
+        placed=clean_placed,
         createdWords=created_words,
         crossWords=cross_words,
         interaction=interaction,
@@ -301,17 +526,19 @@ def validate_move(board, dictionary_set, word, row, col, direction, rack):
     )
 
 
-def generate_moves(board, rack, dictionary, limit=120):
+def generate_moves(board: List[List[dict]], rack: List[str], dictionary: Iterable[str], limit: int = 120) -> List[Dict[str, object]]:
     dictionary_words = iter_dictionary_words(dictionary)
     dictionary_set = set(dictionary_words)
     rack_count = rack_counter(rack)
     board_counter = board_letters_counter(board)
     anchors = get_anchor_cells(board)
 
-    filtered_words = [word for word in dictionary_words if candidate_word_possible(word, rack_count, board_counter)]
-
-    moves = []
+    moves: List[Move] = []
     seen_try = set()
+
+    filtered_words = [
+        word for word in dictionary_words if candidate_word_possible(word, rack_count, board_counter)
+    ]
 
     for word in filtered_words:
         for direction in (DIR_RIGHT, DIR_DOWN):
@@ -322,12 +549,28 @@ def generate_moves(board, rack, dictionary, limit=120):
                         continue
                     seen_try.add(key)
 
-                    move = validate_move(board, dictionary_set, word, row, col, direction, rack_count)
+                    move = validate_move(
+                        board=board,
+                        dictionary_set=dictionary_set,
+                        word=word,
+                        row=row,
+                        col=col,
+                        direction=direction,
+                        rack=rack_count,
+                    )
                     if move:
                         moves.append(move)
 
     moves.sort(
-        key=lambda m: (-m.score, -len(m.placed), -m.interaction, -len(m.word), m.word, m.row, m.col)
+        key=lambda m: (
+            -m.score,
+            -len(m.placed),
+            -m.interaction,
+            -len(m.word),
+            m.word,
+            m.row,
+            m.col,
+        )
     )
 
     unique = []
