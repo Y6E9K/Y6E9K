@@ -58,6 +58,8 @@ body {
 .new-board-bar select,
 .new-board-bar button,
 .card button,
+.tab-close,
+.tab-rename-input,
 .rack-input {
   border: 0;
   outline: 0;
@@ -77,6 +79,12 @@ body {
 .new-board-bar button,
 .card button {
   cursor: pointer;
+}
+
+.new-board-bar button:disabled,
+.card button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 .tabs-bar {
@@ -101,6 +109,30 @@ body {
 .tab-chip.active {
   background: #24324f;
   box-shadow: 0 0 0 2px rgba(93, 162, 255, 0.28) inset;
+}
+
+.tab-chip span {
+  white-space: nowrap;
+}
+
+.tab-close {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tab-rename-input {
+  width: 110px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
 }
 
 .layout {
@@ -214,7 +246,6 @@ body {
 .board-cell-bonus {
   color: rgba(255, 255, 255, 0.96);
   z-index: 1;
-  font-size: clamp(10px, 1.2vw, 20px);
 }
 
 .board-cell-preview-letter {
@@ -290,6 +321,10 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+.suggestion-item:hover {
+  background: #1d2940;
+}
+
 .suggestion-item.active {
   background: #244a33;
   border-color: rgba(121, 207, 130, 0.55);
@@ -303,7 +338,11 @@ body {
   margin-bottom: 4px;
 }
 
-.suggestion-sub,
+.suggestion-sub {
+  color: #aeb9d7;
+  font-size: 13px;
+}
+
 .empty-state,
 .empty-page {
   color: #aeb9d7;
