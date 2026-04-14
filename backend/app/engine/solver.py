@@ -4,7 +4,6 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Iterable, List, Dict, Tuple, Set, Optional
 
-
 TR_LETTERS = set("ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ")
 DIR_RIGHT = "YATAY"
 DIR_DOWN = "DIKEY"
@@ -73,7 +72,6 @@ def has_any_tiles(board: List[List[dict]]) -> bool:
 def iter_dictionary_words(dictionary: Iterable[str]) -> List[str]:
     words = []
     seen = set()
-
     for raw in dictionary:
         word = normalize_word(str(raw))
         if word in seen:
@@ -82,13 +80,11 @@ def iter_dictionary_words(dictionary: Iterable[str]) -> List[str]:
             continue
         seen.add(word)
         words.append(word)
-
     return words
 
 
 def rack_counter(rack: List[str]) -> Counter:
-    cleaned = [normalize_letter(x) for x in rack if str(x).strip()]
-    return Counter(cleaned)
+    return Counter(normalize_letter(x) for x in rack if str(x).strip())
 
 
 def board_letters_counter(board: List[List[dict]]) -> Counter:
@@ -107,13 +103,7 @@ def candidate_word_possible(word: str, rack: Counter, board_letters: Counter) ->
     return all(available[ch] >= count for ch, count in need.items())
 
 
-def board_main_word(
-    board: List[List[dict]],
-    row: int,
-    col: int,
-    direction: str,
-    placed_letters: Dict[Tuple[int, int], str],
-) -> str:
+def board_main_word(board, row, col, direction, placed_letters):
     dr, dc = (0, 1) if direction == DIR_RIGHT else (1, 0)
 
     r, c = row, col
@@ -124,7 +114,7 @@ def board_main_word(
         r -= dr
         c -= dc
 
-    chars: List[str] = []
+    chars = []
     while in_bounds(board, r, c):
         ch = placed_letters.get((r, c)) or get_cell_letter(board, r, c)
         if not ch:
@@ -132,18 +122,10 @@ def board_main_word(
         chars.append(ch)
         r += dr
         c += dc
-
     return "".join(chars)
 
 
-def build_cross_word(
-    board: List[List[dict]],
-    row: int,
-    col: int,
-    letter: str,
-    direction: str,
-    placed_letters: Dict[Tuple[int, int], str],
-) -> str:
+def build_cross_word(board, row, col, letter, direction, placed_letters):
     if direction == DIR_RIGHT:
         dr, dc = 1, 0
     else:
@@ -157,7 +139,7 @@ def build_cross_word(
         r -= dr
         c -= dc
 
-    chars: List[str] = []
+    chars = []
     while in_bounds(board, r, c):
         if r == row and c == col:
             ch = letter
@@ -172,21 +154,15 @@ def build_cross_word(
     return "".join(chars)
 
 
-def touches_existing_neighbors(
-    board: List[List[dict]],
-    row: int,
-    col: int,
-    direction: str,
-) -> bool:
+def touches_existing_neighbors(board, row, col, direction):
     if direction == DIR_RIGHT:
         neighbors = [(row - 1, col), (row + 1, col)]
     else:
         neighbors = [(row, col - 1), (row, col + 1)]
-
     return any(get_cell_letter(board, r, c) for r, c in neighbors if in_bounds(board, r, c))
 
 
-def word_passes_center(word_len: int, row: int, col: int, direction: str, center: Tuple[int, int]) -> bool:
+def word_passes_center(word_len, row, col, direction, center):
     cr, cc = center
     for i in range(word_len):
         r = row + (i if direction == DIR_DOWN else 0)
@@ -196,7 +172,7 @@ def word_passes_center(word_len: int, row: int, col: int, direction: str, center
     return False
 
 
-def can_build_with_rack(word: str, board_letters: List[str], rack: Counter) -> bool:
+def can_build_with_rack(word, board_letters, rack):
     needed = Counter()
     for ch, existing in zip(word, board_letters):
         if not existing:
@@ -206,14 +182,8 @@ def can_build_with_rack(word: str, board_letters: List[str], rack: Counter) -> b
     return all(rack[ch] >= count for ch, count in needed.items())
 
 
-def collect_line_letters(
-    board: List[List[dict]],
-    row: int,
-    col: int,
-    direction: str,
-    word_len: int,
-) -> Optional[List[str]]:
-    letters: List[str] = []
+def collect_line_letters(board, row, col, direction, word_len):
+    letters = []
     for i in range(word_len):
         r = row + (i if direction == DIR_DOWN else 0)
         c = col + (i if direction == DIR_RIGHT else 0)
@@ -223,18 +193,10 @@ def collect_line_letters(
     return letters
 
 
-def has_blocking_prefix_suffix(
-    board: List[List[dict]],
-    row: int,
-    col: int,
-    direction: str,
-    word_len: int,
-) -> bool:
+def has_blocking_prefix_suffix(board, row, col, direction, word_len):
     dr, dc = (0, 1) if direction == DIR_RIGHT else (1, 0)
-
     before_r, before_c = row - dr, col - dc
     after_r, after_c = row + dr * word_len, col + dc * word_len
-
     if in_bounds(board, before_r, before_c) and get_cell_letter(board, before_r, before_c):
         return True
     if in_bounds(board, after_r, after_c) and get_cell_letter(board, after_r, after_c):
@@ -242,9 +204,8 @@ def has_blocking_prefix_suffix(
     return False
 
 
-def get_anchor_cells(board: List[List[dict]]) -> Set[Tuple[int, int]]:
-    anchors: Set[Tuple[int, int]] = set()
-
+def get_anchor_cells(board):
+    anchors = set()
     if not has_any_tiles(board):
         anchors.add(get_center(board))
         return anchors
@@ -256,16 +217,10 @@ def get_anchor_cells(board: List[List[dict]]) -> Set[Tuple[int, int]]:
                 for nr, nc in ((r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)):
                     if in_bounds(board, nr, nc) and not get_cell_letter(board, nr, nc):
                         anchors.add((nr, nc))
-
     return anchors
 
 
-def possible_starts_for_anchor(
-    word_len: int,
-    anchor_row: int,
-    anchor_col: int,
-    direction: str,
-) -> List[Tuple[int, int]]:
+def possible_starts_for_anchor(word_len, anchor_row, anchor_col, direction):
     starts = []
     for i in range(word_len):
         row = anchor_row - (i if direction == DIR_DOWN else 0)
@@ -274,28 +229,17 @@ def possible_starts_for_anchor(
     return starts
 
 
-def validate_move(
-    board: List[List[dict]],
-    dictionary_set: Set[str],
-    word: str,
-    row: int,
-    col: int,
-    direction: str,
-    rack: Counter,
-) -> Optional[Move]:
+def validate_move(board, dictionary_set, word, row, col, direction, rack):
     line_letters = collect_line_letters(board, row, col, direction, len(word))
     if line_letters is None:
         return None
-
     if has_blocking_prefix_suffix(board, row, col, direction, len(word)):
         return None
-
     if not can_build_with_rack(word, line_letters, rack):
         return None
 
-    placed: List[Dict[str, object]] = []
-    placed_map: Dict[Tuple[int, int], str] = {}
-
+    placed = []
+    placed_map = {}
     interaction = 0
     overlap = 0
 
@@ -327,23 +271,14 @@ def validate_move(
             return None
 
     main_word = board_main_word(board, row, col, direction, placed_map)
-    if main_word != word:
-        return None
-    if main_word not in dictionary_set:
+    if main_word != word or main_word not in dictionary_set:
         return None
 
-    cross_words: List[str] = []
-    created_words: List[str] = [main_word]
+    cross_words = []
+    created_words = [main_word]
 
     for tile in placed:
-        cross = build_cross_word(
-            board,
-            int(tile["row"]),
-            int(tile["col"]),
-            str(tile["letter"]),
-            direction,
-            placed_map,
-        )
+        cross = build_cross_word(board, tile["row"], tile["col"], tile["letter"], direction, placed_map)
         if len(cross) > 1:
             if cross not in dictionary_set:
                 return None
@@ -366,26 +301,17 @@ def validate_move(
     )
 
 
-def generate_moves(
-    board: List[List[dict]],
-    rack: List[str],
-    dictionary: Iterable[str],
-    limit: int = 120,
-) -> List[Dict[str, object]]:
+def generate_moves(board, rack, dictionary, limit=120):
     dictionary_words = iter_dictionary_words(dictionary)
     dictionary_set = set(dictionary_words)
     rack_count = rack_counter(rack)
     board_counter = board_letters_counter(board)
     anchors = get_anchor_cells(board)
 
-    moves: List[Move] = []
-    seen_try = set()
+    filtered_words = [word for word in dictionary_words if candidate_word_possible(word, rack_count, board_counter)]
 
-    filtered_words = [
-        word
-        for word in dictionary_words
-        if candidate_word_possible(word, rack_count, board_counter)
-    ]
+    moves = []
+    seen_try = set()
 
     for word in filtered_words:
         for direction in (DIR_RIGHT, DIR_DOWN):
@@ -396,28 +322,12 @@ def generate_moves(
                         continue
                     seen_try.add(key)
 
-                    move = validate_move(
-                        board=board,
-                        dictionary_set=dictionary_set,
-                        word=word,
-                        row=row,
-                        col=col,
-                        direction=direction,
-                        rack=rack_count,
-                    )
+                    move = validate_move(board, dictionary_set, word, row, col, direction, rack_count)
                     if move:
                         moves.append(move)
 
     moves.sort(
-        key=lambda m: (
-            -m.score,
-            -len(m.placed),
-            -m.interaction,
-            -len(m.word),
-            m.word,
-            m.row,
-            m.col,
-        )
+        key=lambda m: (-m.score, -len(m.placed), -m.interaction, -len(m.word), m.word, m.row, m.col)
     )
 
     unique = []
