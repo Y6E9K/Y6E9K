@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, List
+from typing import List, Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -73,9 +73,19 @@ def health():
 
 @app.get("/api/board/{board_type}")
 def get_board(board_type: str):
-    size = 9 if board_type == "9x9" else 15
-
-    if size == 15:
+    if board_type == "9x9":
+        bonus_grid = [
+            ["K3", None, None, "H2", None, None, "K3", None, None],
+            [None, "H3", None, None, "K2", None, None, "H3", None],
+            [None, None, "H2", None, None, None, "H2", None, None],
+            ["H2", None, None, "H3", None, "H3", None, None, "H2"],
+            [None, "K2", None, None, "START", None, None, "K2", None],
+            ["H2", None, None, "H3", None, "H3", None, None, "H2"],
+            [None, None, "H2", None, None, None, "H2", None, None],
+            [None, "H3", None, None, "K2", None, None, "H3", None],
+            ["K3", None, None, "H2", None, None, "K3", None, None],
+        ]
+    else:
         bonus_grid = [
             [None, None, "K3", None, None, "H2", None, None, None, "H2", None, None, "K3", None, None],
             [None, "H3", None, None, None, None, "H2", None, "H2", None, None, None, None, "H3", None],
@@ -93,10 +103,8 @@ def get_board(board_type: str):
             [None, "H3", None, None, None, None, "H2", None, "H2", None, None, None, None, "H3", None],
             [None, None, "K3", None, None, "H2", None, None, None, "H2", None, None, "K3", None, None],
         ]
-    else:
-        bonus_grid = [[None for _ in range(size)] for _ in range(size)]
-        bonus_grid[size // 2][size // 2] = "START"
 
+    size = len(bonus_grid)
     return {
         "boardType": board_type,
         "size": size,
