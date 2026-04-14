@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Any
+from typing import Any, List
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,7 +19,7 @@ def load_dictionary_words() -> List[str]:
         return words
 
     for file_path in DATA_DIR.glob("*"):
-      if file_path.is_file():
+        if file_path.is_file():
             try:
                 content = file_path.read_text(encoding="utf-8", errors="ignore")
                 for line in content.splitlines():
