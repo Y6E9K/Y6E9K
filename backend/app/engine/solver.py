@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from typing import Iterable, List, Dict, Tuple, Set, Optional
 
 
 TR_LETTERS = set("ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ")
@@ -89,6 +89,22 @@ def iter_dictionary_words(dictionary: Iterable[str]) -> List[str]:
 def rack_counter(rack: List[str]) -> Counter:
     cleaned = [normalize_letter(x) for x in rack if str(x).strip()]
     return Counter(cleaned)
+
+
+def board_letters_counter(board: List[List[dict]]) -> Counter:
+    result = Counter()
+    for r in range(len(board)):
+        for c in range(len(board[r])):
+            ch = get_cell_letter(board, r, c)
+            if ch:
+                result[ch] += 1
+    return result
+
+
+def candidate_word_possible(word: str, rack: Counter, board_letters: Counter) -> bool:
+    available = rack + board_letters
+    need = Counter(word)
+    return all(available[ch] >= count for ch, count in need.items())
 
 
 def board_main_word(
@@ -226,6 +242,38 @@ def has_blocking_prefix_suffix(
     return False
 
 
+def get_anchor_cells(board: List[List[dict]]) -> Set[Tuple[int, int]]:
+    anchors: Set[Tuple[int, int]] = set()
+
+    if not has_any_tiles(board):
+        anchors.add(get_center(board))
+        return anchors
+
+    size = get_board_size(board)
+    for r in range(size):
+        for c in range(size):
+            if get_cell_letter(board, r, c):
+                for nr, nc in ((r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)):
+                    if in_bounds(board, nr, nc) and not get_cell_letter(board, nr, nc):
+                        anchors.add((nr, nc))
+
+    return anchors
+
+
+def possible_starts_for_anchor(
+    word_len: int,
+    anchor_row: int,
+    anchor_col: int,
+    direction: str,
+) -> List[Tuple[int, int]]:
+    starts = []
+    for i in range(word_len):
+        row = anchor_row - (i if direction == DIR_DOWN else 0)
+        col = anchor_col - (i if direction == DIR_RIGHT else 0)
+        starts.append((row, col))
+    return starts
+
+
 def validate_move(
     board: List[List[dict]],
     dictionary_set: Set[str],
@@ -322,22 +370,32 @@ def generate_moves(
     board: List[List[dict]],
     rack: List[str],
     dictionary: Iterable[str],
-    limit: int = 300,
+    limit: int = 120,
 ) -> List[Dict[str, object]]:
     dictionary_words = iter_dictionary_words(dictionary)
     dictionary_set = set(dictionary_words)
     rack_count = rack_counter(rack)
+    board_counter = board_letters_counter(board)
+    anchors = get_anchor_cells(board)
 
-    size = get_board_size(board)
     moves: List[Move] = []
+    seen_try = set()
 
-    for word in dictionary_words:
-        if len(word) < 2:
-            continue
+    filtered_words = [
+        word
+        for word in dictionary_words
+        if candidate_word_possible(word, rack_count, board_counter)
+    ]
 
+    for word in filtered_words:
         for direction in (DIR_RIGHT, DIR_DOWN):
-            for row in range(size):
-                for col in range(size):
+            for anchor_row, anchor_col in anchors:
+                for row, col in possible_starts_for_anchor(len(word), anchor_row, anchor_col, direction):
+                    key = (word, row, col, direction)
+                    if key in seen_try:
+                        continue
+                    seen_try.add(key)
+
                     move = validate_move(
                         board=board,
                         dictionary_set=dictionary_set,
