@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from .engine.solver import generate_moves
+from .engine.solver import build_dictionary_index, generate_moves
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -19,17 +19,24 @@ def load_dictionary_words() -> List[str]:
         return words
 
     for file_path in DATA_DIR.glob("*"):
-        if file_path.is_file():
-            try:
-                content = file_path.read_text(encoding="utf-8", errors="ignore")
-                for line in content.splitlines():
-                    line = line.strip()
-                    if line:
-                        words.append(line)
-            except Exception:
-                continue
+        if not file_path.is_file():
+            continue
+
+        try:
+            content = file_path.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+
+        for line in content.splitlines():
+            line = line.strip()
+            if line:
+                words.append(line)
 
     return words
+
+
+WORDS = load_dictionary_words()
+DICT_INDEX = build_dictionary_index(WORDS)
 
 
 class SolveRequest(BaseModel):
@@ -51,22 +58,20 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    words = load_dictionary_words()
     return {
         "ok": True,
         "name": "Kelime Asistanı API",
         "docs": "/docs",
-        "wordCount": len(words),
+        "wordCount": len(DICT_INDEX.word_set),
         "files": len(list(DATA_DIR.glob("*"))) if DATA_DIR.exists() else 0,
     }
 
 
 @app.get("/api/health")
 def health():
-    words = load_dictionary_words()
     return {
         "ok": True,
-        "wordCount": len(words),
+        "wordCount": len(DICT_INDEX.word_set),
         "files": len(list(DATA_DIR.glob("*"))) if DATA_DIR.exists() else 0,
     }
 
@@ -74,19 +79,22 @@ def health():
 @app.get("/api/board/{board_type}")
 def get_board(board_type: str):
     if board_type == "9x9":
-        # Kullanıcının referans ekran görüntüsündeki 9x9 bonus yerleşimi
+        size = 9
+
+        # 9x9 bonus yerleşimini burada kendi doğru düzenine göre değiştir
         bonus_grid = [
-            ["K3", None, None, None, "H3", None, None, None, "K3"],
-            [None, "K2", None, "H2", None, "H2", None, "K2", None],
-            [None, None, "H3", None, None, None, "H3", None, None],
-            [None, "H2", None, None, None, None, None, "H2", None],
-            ["H3", None, None, None, "START", None, None, None, "H3"],
-            [None, "H2", None, None, None, None, None, "H2", None],
-            [None, None, "H3", None, None, None, "H3", None, None],
-            [None, "K2", None, "H2", None, "H2", None, "K2", None],
-            ["K3", None, None, None, "H3", None, None, None, "K3"],
+            [None, None, "K3", None, None, None, "K3", None, None],
+            [None, "H2", None, None, "H3", None, None, "H2", None],
+            ["K3", None, None, "H2", None, "H2", None, None, "K3"],
+            [None, None, "H2", None, "K2", None, "H2", None, None],
+            [None, "H3", None, "K2", "START", "K2", None, "H3", None],
+            [None, None, "H2", None, "K2", None, "H2", None, None],
+            ["K3", None, None, "H2", None, "H2", None, None, "K3"],
+            [None, "H2", None, None, "H3", None, None, "H2", None],
+            [None, None, "K3", None, None, None, "K3", None, None],
         ]
     else:
+        size = 15
         bonus_grid = [
             [None, None, "K3", None, None, "H2", None, None, None, "H2", None, None, "K3", None, None],
             [None, "H3", None, None, None, None, "H2", None, "H2", None, None, None, None, "H3", None],
@@ -105,7 +113,6 @@ def get_board(board_type: str):
             [None, None, "K3", None, None, "H2", None, None, None, "H2", None, None, "K3", None, None],
         ]
 
-    size = len(bonus_grid)
     return {
         "boardType": board_type,
         "size": size,
@@ -116,6 +123,11 @@ def get_board(board_type: str):
 
 @app.post("/api/solve")
 def solve(payload: SolveRequest):
-    words = load_dictionary_words()
-    suggestions = generate_moves(payload.board, payload.rack, words)
+    suggestions = generate_moves(
+        board=payload.board,
+        rack=payload.rack,
+        index=DICT_INDEX,
+        limit=50,
+    )
+
     return {"suggestions": suggestions}
