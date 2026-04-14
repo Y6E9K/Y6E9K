@@ -723,9 +723,7 @@ export default function App() {
             <div
               className="board-grid"
               style={{
-                gridTemplateColumns: `repeat(${
-                  activeTab.boardType === "9x9" ? 9 : 15
-                }, minmax(0, 1fr))`,
+                gridTemplateColumns: `repeat(${activeTab.boardType === "9x9" ? 9 : 15}, minmax(0, 1fr))`,
               }}
             >
               {activeTab.board.map((row, rowIndex) =>
