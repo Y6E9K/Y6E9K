@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from typing import Iterable, List, Dict, Tuple, Set, Optional
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 
 TR_LETTERS = set("ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ")
@@ -52,7 +52,7 @@ def in_bounds(board: List[List[dict]], row: int, col: int) -> bool:
 
 def get_cell_letter(board: List[List[dict]], row: int, col: int) -> str:
     if not in_bounds(board, row, col):
-      return ""
+        return ""
     cell = board[row][col]
     if isinstance(cell, dict):
         return normalize_letter(str(cell.get("letter", "") or ""))
