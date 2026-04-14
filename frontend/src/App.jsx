@@ -4,11 +4,34 @@ import BoardGrid from "./components/BoardGrid";
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 const MAX_TABS = 7;
-const VALID_RACK_INPUT = /^[A-Za-zÇĞİIÖŞÜçğıiöşü? ]$/;
+const VALID_TR_CELL = /^[ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ?]$/;
+const VALID_TR_RACK = /^[ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ? ]$/;
 
-function normalizeLetter(value) {
+function normalizeTR(value) {
   if (!value) return "";
-  return value.toString().slice(0, 1).toLocaleUpperCase("tr-TR");
+
+  const raw = String(value).trim().slice(0, 1);
+
+  const map = {
+    i: "İ",
+    ı: "I",
+    ş: "Ş",
+    ğ: "Ğ",
+    ü: "Ü",
+    ö: "Ö",
+    ç: "Ç",
+    I: "I",
+    İ: "İ",
+    Ş: "Ş",
+    Ğ: "Ğ",
+    Ü: "Ü",
+    Ö: "Ö",
+    Ç: "Ç",
+  };
+
+  if (map[raw]) return map[raw];
+
+  return raw.toLocaleUpperCase("tr-TR");
 }
 
 function createEmptyRack() {
@@ -41,12 +64,10 @@ function createEmptyBoard(size) {
 }
 
 function normalizeBoardData(boardType, boardData) {
-  const size = boardData?.size || boardData?.boardSize || (boardType === "9x9" ? 9 : 15);
-
   if (Array.isArray(boardData?.board) && boardData.board.length) {
     return boardData.board.map((row) =>
       row.map((cell) => ({
-        letter: cell?.letter || "",
+        letter: cell?.letter ? normalizeTR(cell.letter) : "",
         bonus: cell?.bonus || null,
       }))
     );
@@ -55,7 +76,7 @@ function normalizeBoardData(boardType, boardData) {
   if (Array.isArray(boardData?.cells) && boardData.cells.length) {
     return boardData.cells.map((row) =>
       row.map((cell) => ({
-        letter: cell?.letter || "",
+        letter: cell?.letter ? normalizeTR(cell.letter) : "",
         bonus: cell?.bonus || null,
       }))
     );
@@ -70,6 +91,7 @@ function normalizeBoardData(boardType, boardData) {
     );
   }
 
+  const size = boardType === "9x9" ? 9 : 15;
   return createEmptyBoard(size);
 }
 
@@ -84,6 +106,7 @@ function createTabFromBoardData(boardType, boardData, name) {
     rack: createEmptyRack(),
     suggestions: [],
     loading: false,
+    renameMode: false,
   };
 }
 
@@ -116,13 +139,15 @@ function parsePositionString(position) {
   const value = String(position || "");
   const match = value.match(/(\d+)\s*\/\s*(\d+)/);
 
-  if (!match) return { row: null, col: null, direction: "" };
+  if (!match) {
+    return { row: null, col: null, direction: "" };
+  }
 
-  return {
-    row: Number(match[1]) - 1,
-    col: Number(match[2]) - 1,
-    direction: parseDirection(value),
-  };
+  const row = Number(match[1]) - 1;
+  const col = Number(match[2]) - 1;
+  const direction = parseDirection(value);
+
+  return { row, col, direction };
 }
 
 function extractPlacements(suggestion, board = []) {
@@ -155,15 +180,27 @@ function extractPlacements(suggestion, board = []) {
             : typeof p.x === "number"
             ? p.x
             : null,
-        letter: normalizeLetter(p.letter || p.char || p.value || p.tile || ""),
+        letter: normalizeTR(p.letter || p.char || p.value || p.tile || ""),
       }))
-      .filter((p) => typeof p.row === "number" && typeof p.col === "number" && p.letter);
+      .filter(
+        (p) =>
+          typeof p.row === "number" &&
+          typeof p.col === "number" &&
+          p.letter
+      );
   }
 
-  const word = String(suggestion.word || suggestion.kelime || "").toLocaleUpperCase("tr-TR");
+  const word = String(
+    suggestion.word || suggestion.kelime || ""
+  )
+    .split("")
+    .map((x) => normalizeTR(x))
+    .join("");
 
-  let startRow = typeof suggestion.row === "number" ? suggestion.row : Number(suggestion.row);
-  let startCol = typeof suggestion.col === "number" ? suggestion.col : Number(suggestion.col);
+  let startRow =
+    typeof suggestion.row === "number" ? suggestion.row : Number(suggestion.row);
+  let startCol =
+    typeof suggestion.col === "number" ? suggestion.col : Number(suggestion.col);
   let direction = parseDirection(suggestion.direction || suggestion.yon || "");
 
   if ((Number.isNaN(startRow) || Number.isNaN(startCol) || !direction) && suggestion.position) {
@@ -173,26 +210,33 @@ function extractPlacements(suggestion, board = []) {
     if (!direction) direction = parsed.direction;
   }
 
-  if (!word || Number.isNaN(startRow) || Number.isNaN(startCol) || !direction) return [];
+  if (!word || Number.isNaN(startRow) || Number.isNaN(startCol) || !direction) {
+    return [];
+  }
 
   const placements = [];
+
   for (let i = 0; i < word.length; i++) {
     const row = startRow + (direction === "vertical" ? i : 0);
     const col = startCol + (direction === "horizontal" ? i : 0);
 
     if (!board[row] || !board[row][col]) return [];
 
-    const existing = normalizeLetter(board[row][col].letter || "");
-    const nextLetter = normalizeLetter(word[i]);
+    const existingLetter = normalizeTR(board[row][col].letter || "");
+    const nextLetter = normalizeTR(word[i]);
 
-    if (!existing) {
+    if (!existingLetter) {
       placements.push({ row, col, letter: nextLetter });
-    } else if (existing !== nextLetter) {
+    } else if (existingLetter !== nextLetter) {
       return [];
     }
   }
 
   return placements;
+}
+
+function buildPreviewCells(suggestion, board = []) {
+  return extractPlacements(suggestion, board);
 }
 
 function applySuggestionToBoard(board, suggestion) {
@@ -216,6 +260,8 @@ export default function App() {
   const [activeSuggestionKey, setActiveSuggestionKey] = useState(null);
 
   const rackRefs = useRef([]);
+  const renameRefs = useRef({});
+  const cellRefs = useRef({});
   const lastSuggestionTapRef = useRef({ key: null, time: 0 });
 
   const activeTab = useMemo(
@@ -230,6 +276,34 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    const handleOutsidePreview = (event) => {
+      if (!activeTab) return;
+
+      const target = event.target;
+      if (
+        target.closest(".suggestion-item") ||
+        target.closest(".board-cell") ||
+        target.closest(".rack-input") ||
+        target.closest(".card button")
+      ) {
+        return;
+      }
+
+      setTabs((prev) =>
+        prev.map((tab) =>
+          tab.id === activeTab.id ? { ...tab, previewCells: [] } : tab
+        )
+      );
+      setActiveSuggestionKey(null);
+    };
+
+    document.addEventListener("pointerdown", handleOutsidePreview);
+    return () => {
+      document.removeEventListener("pointerdown", handleOutsidePreview);
+    };
+  }, [activeTab]);
+
   async function fetchBoard(boardType) {
     const res = await fetch(`${API_BASE}/api/board/${boardType}`);
     if (!res.ok) throw new Error("Tahta verisi alınamadı");
@@ -238,6 +312,7 @@ export default function App() {
 
   async function handleCreateBoard(forcedType) {
     const boardType = forcedType || newBoardType;
+
     if (tabs.length >= MAX_TABS) {
       alert("En fazla 7 sekme açılabilir.");
       return;
@@ -247,7 +322,12 @@ export default function App() {
       setLoadingBoard(true);
       const boardData = await fetchBoard(boardType);
       const boardNumber = getNextBoardNumber(tabs);
-      const newTab = createTabFromBoardData(boardType, boardData, `Tahta ${boardNumber}`);
+      const newTab = createTabFromBoardData(
+        boardType,
+        boardData,
+        `Tahta ${boardNumber}`
+      );
+
       setTabs((prev) => [...prev, newTab]);
       setActiveTabId(newTab.id);
       setActiveSuggestionKey(null);
@@ -259,37 +339,89 @@ export default function App() {
     }
   }
 
+  function closeTab(tabId) {
+    setTabs((prev) => {
+      const next = prev.filter((t) => t.id !== tabId);
+      if (activeTabId === tabId) {
+        const fallback = next[next.length - 1] || null;
+        setActiveTabId(fallback ? fallback.id : null);
+      }
+      return next;
+    });
+  }
+
+  function startRename(tabId) {
+    setTabs((prev) =>
+      prev.map((t) => (t.id === tabId ? { ...t, renameMode: true } : t))
+    );
+
+    setTimeout(() => {
+      const el = renameRefs.current[tabId];
+      if (el) {
+        el.focus();
+        el.select();
+      }
+    }, 0);
+  }
+
+  function finishRename(tabId, value) {
+    const clean = String(value || "").trim() || "Tahta";
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.id === tabId ? { ...t, name: clean, renameMode: false } : t
+      )
+    );
+  }
+
   function updateActiveTab(patchFn) {
-    setTabs((prev) => prev.map((tab) => (tab.id === activeTabId ? patchFn(tab) : tab)));
+    setTabs((prev) =>
+      prev.map((tab) => (tab.id === activeTabId ? patchFn(tab) : tab))
+    );
   }
 
   function handleSelectCell(row, col) {
     if (!activeTab) return;
-    updateActiveTab((tab) => ({ ...tab, selectedCell: { row, col }, previewCells: [] }));
+
+    updateActiveTab((tab) => ({
+      ...tab,
+      selectedCell: { row, col },
+      previewCells: [],
+    }));
+
     setActiveSuggestionKey(null);
   }
 
   function focusBoardCell(row, col) {
-    const nextInput = document.querySelector(`[data-cell="${row}-${col}"]`);
-    nextInput?.focus();
+    const key = `${row}-${col}`;
+    const el = cellRefs.current[key];
+    if (el) el.focus();
   }
 
   function handleBoardCellInput(row, col, value) {
     if (!activeTab) return;
 
-    const boardWidth = activeTab.board.length;
+    const ch = normalizeTR(value);
+    if (!VALID_TR_CELL.test(ch)) return;
+
+    const boardWidth = activeTab.boardType === "9x9" ? 9 : 15;
 
     updateActiveTab((tab) => {
       const nextBoard = cloneBoard(tab.board);
-      nextBoard[row][col].letter = value || "";
+      nextBoard[row][col].letter = ch;
+
+      const nextCol = Math.min(col + 1, boardWidth - 1);
+
       return {
         ...tab,
         board: nextBoard,
-        selectedCell: { row, col: Math.min(col + 1, boardWidth - 1) },
+        selectedCell: { row, col: nextCol },
       };
     });
 
-    setTimeout(() => focusBoardCell(row, Math.min(col + 1, boardWidth - 1)), 0);
+    setTimeout(() => {
+      const nextCol = Math.min(col + 1, boardWidth - 1);
+      focusBoardCell(row, nextCol);
+    }, 0);
   }
 
   function handleBoardCellBackspace(row, col) {
@@ -297,17 +429,30 @@ export default function App() {
 
     updateActiveTab((tab) => {
       const nextBoard = cloneBoard(tab.board);
+
       if (nextBoard[row][col].letter) {
         nextBoard[row][col].letter = "";
-        return { ...tab, board: nextBoard, selectedCell: { row, col } };
+        return {
+          ...tab,
+          board: nextBoard,
+          selectedCell: { row, col },
+        };
       }
 
       const prevCol = Math.max(col - 1, 0);
       nextBoard[row][prevCol].letter = "";
-      return { ...tab, board: nextBoard, selectedCell: { row, col: prevCol } };
+
+      return {
+        ...tab,
+        board: nextBoard,
+        selectedCell: { row, col: prevCol },
+      };
     });
 
-    setTimeout(() => focusBoardCell(row, Math.max(col - 1, 0)), 0);
+    setTimeout(() => {
+      const prevCol = Math.max(col - 1, 0);
+      focusBoardCell(row, prevCol);
+    }, 0);
   }
 
   function focusRack(index) {
@@ -325,26 +470,42 @@ export default function App() {
       const nextRack = [...tab.rack];
       let cursor = startIndex;
 
-      for (const ch of rawValue) {
+      for (const rawChar of String(rawValue || "")) {
         if (cursor > 6) break;
-        if (ch === " ") {
+
+        if (rawChar === " ") {
           nextRack[cursor] = "";
           cursor += 1;
           continue;
         }
-        if (!VALID_RACK_INPUT.test(ch)) continue;
-        nextRack[cursor] = normalizeLetter(ch);
+
+        const normalized = normalizeTR(rawChar);
+        if (!VALID_TR_RACK.test(normalized)) continue;
+
+        if (normalized === "?") {
+          const jokerCount = nextRack.filter((x) => x === "?").length;
+          if (jokerCount >= 2 && nextRack[cursor] !== "?") continue;
+        }
+
+        if (!normalized) continue;
+
+        nextRack[cursor] = normalized;
         cursor += 1;
       }
 
-      return { ...tab, rack: nextRack };
+      return {
+        ...tab,
+        rack: nextRack,
+      };
     });
 
-    setTimeout(() => focusRack(Math.min(startIndex + Math.max(rawValue.length, 1), 6)), 0);
+    const nextIndex = Math.min(startIndex + Math.max(String(rawValue || "").length, 1), 6);
+    setTimeout(() => focusRack(nextIndex), 0);
   }
 
   function handleRackChange(index, e) {
-    setRackValueFromIndex(index, e.target.value || "");
+    const raw = e.target.value || "";
+    setRackValueFromIndex(index, raw);
   }
 
   function handleRackKeyDown(index, e) {
@@ -352,8 +513,10 @@ export default function App() {
 
     if (e.key === "Backspace") {
       e.preventDefault();
+
       updateActiveTab((tab) => {
         const nextRack = [...tab.rack];
+
         if (nextRack[index]) {
           nextRack[index] = "";
           return { ...tab, rack: nextRack };
@@ -364,6 +527,7 @@ export default function App() {
         setTimeout(() => focusRack(prevIndex), 0);
         return { ...tab, rack: nextRack };
       });
+
       return;
     }
 
@@ -378,58 +542,89 @@ export default function App() {
       focusRack(Math.min(index + 1, 6));
       return;
     }
+
+    if (e.key === " ") {
+      e.preventDefault();
+      setRackValueFromIndex(index, " ");
+    }
   }
 
   async function handleSolve() {
     if (!activeTab) return;
 
     try {
-      updateActiveTab((tab) => ({ ...tab, loading: true, previewCells: [] }));
+      updateActiveTab((tab) => ({
+        ...tab,
+        loading: true,
+        previewCells: [],
+      }));
       setActiveSuggestionKey(null);
 
       const payload = {
         boardType: activeTab.boardType,
         board: activeTab.board.map((row) =>
-          row.map((cell) => ({ bonus: cell.bonus, letter: cell.letter || "" }))
+          row.map((cell) => ({
+            bonus: cell.bonus,
+            letter: cell.letter || "",
+          }))
         ),
         rack: activeTab.rack.filter(Boolean),
       };
 
       const res = await fetch(`${API_BASE}/api/solve`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) throw new Error("Öneriler alınamadı");
+      if (!res.ok) {
+        throw new Error("Öneriler alınamadı.");
+      }
 
       const data = await res.json();
+      const suggestions = Array.isArray(data?.suggestions)
+        ? data.suggestions
+        : [];
+
       updateActiveTab((tab) => ({
         ...tab,
         loading: false,
-        suggestions: Array.isArray(data?.suggestions) ? data.suggestions : [],
+        suggestions,
       }));
     } catch (err) {
       console.error(err);
-      updateActiveTab((tab) => ({ ...tab, loading: false }));
+      updateActiveTab((tab) => ({
+        ...tab,
+        loading: false,
+      }));
       alert("Öneriler alınırken hata oluştu.");
     }
   }
 
   function previewSuggestion(suggestion, key = null) {
     if (!activeTab) return;
-    const previewCells = extractPlacements(suggestion, activeTab.board);
-    updateActiveTab((tab) => ({ ...tab, previewCells }));
+
+    const previewCells = buildPreviewCells(suggestion, activeTab.board);
+
+    updateActiveTab((tab) => ({
+      ...tab,
+      previewCells,
+    }));
+
     setActiveSuggestionKey(key);
   }
 
   function applySuggestion(suggestion) {
     if (!activeTab) return;
+
     updateActiveTab((tab) => ({
       ...tab,
       board: applySuggestionToBoard(tab.board, suggestion),
       previewCells: [],
     }));
+
     setActiveSuggestionKey(null);
   }
 
@@ -452,14 +647,21 @@ export default function App() {
       <header className="topbar">
         <div>
           <h1>Kelime Asistanı</h1>
-          <p>Tahtaya tıkla, harf yaz. Dolu kare taş rengine döner; silince eski bonus rengi geri gelir.</p>
+          <p>
+            Tahtaya tıkla, harf yaz. Dolu kare taş rengine döner; silince eski
+            bonus rengi geri gelir.
+          </p>
         </div>
 
         <div className="new-board-bar">
-          <select value={newBoardType} onChange={(e) => setNewBoardType(e.target.value)}>
+          <select
+            value={newBoardType}
+            onChange={(e) => setNewBoardType(e.target.value)}
+          >
             <option value="15x15">15x15</option>
             <option value="9x9">9x9</option>
           </select>
+
           <button onClick={() => handleCreateBoard()} disabled={loadingBoard}>
             {loadingBoard ? "Açılıyor..." : "Yeni Tahta"}
           </button>
@@ -472,8 +674,35 @@ export default function App() {
             key={tab.id}
             className={`tab-chip ${tab.id === activeTabId ? "active" : ""}`}
             onClick={() => setActiveTabId(tab.id)}
+            onDoubleClick={() => startRename(tab.id)}
           >
-            <span>{tab.name}</span>
+            {tab.renameMode ? (
+              <input
+                ref={(el) => (renameRefs.current[tab.id] = el)}
+                className="tab-rename-input"
+                defaultValue={tab.name}
+                onClick={(e) => e.stopPropagation()}
+                onBlur={(e) => finishRename(tab.id, e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    finishRename(tab.id, e.currentTarget.value);
+                  }
+                }}
+              />
+            ) : (
+              <span>{tab.name}</span>
+            )}
+
+            <button
+              className="tab-close"
+              onClick={(e) => {
+                e.stopPropagation();
+                closeTab(tab.id);
+              }}
+              title="Sekmeyi kapat"
+            >
+              ×
+            </button>
           </div>
         ))}
       </div>
@@ -483,10 +712,12 @@ export default function App() {
           <section className="board-panel">
             <BoardGrid
               board={activeTab.board}
+              boardType={activeTab.boardType}
               selectedCell={activeTab.selectedCell}
               previewCells={activeTab.previewCells}
+              cellRefs={cellRefs}
               onSelectCell={handleSelectCell}
-              onCellInput={handleBoardCellInput}
+              onCellChange={handleBoardCellInput}
               onCellBackspace={handleBoardCellBackspace}
             />
           </section>
@@ -495,7 +726,9 @@ export default function App() {
             <section className="card">
               <div className="card-title-row">
                 <h2>Harfler</h2>
-                <span className="info-text">En fazla iki joker girilebilir. Joker:?</span>
+                <span className="info-text">
+                  En fazla iki joker girilebilir. Joker:?
+                </span>
               </div>
 
               <div className="rack-row">
@@ -511,6 +744,7 @@ export default function App() {
                     autoCorrect="off"
                     autoCapitalize="characters"
                     spellCheck={false}
+                    onPaste={(e) => e.preventDefault()}
                     onChange={(e) => handleRackChange(i, e)}
                     onKeyDown={(e) => handleRackKeyDown(i, e)}
                   />
@@ -530,6 +764,7 @@ export default function App() {
                 {activeTab.suggestions.length ? (
                   activeTab.suggestions.map((s, idx) => {
                     const suggestionKey = `${idx}-${s.word || s.kelime || "kelime"}`;
+
                     return (
                       <div
                         key={suggestionKey}
@@ -554,6 +789,7 @@ export default function App() {
                           <strong>{s.word || s.kelime || "Kelime"}</strong>
                           <span>{s.score ?? s.puan ?? 0} puan</span>
                         </div>
+
                         <div className="suggestion-sub">
                           <span>
                             {String(s.direction || s.yon || s.position || "-")}
