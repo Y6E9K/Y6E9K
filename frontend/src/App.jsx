@@ -30,7 +30,6 @@ function normalizeTR(value) {
   };
 
   if (map[raw]) return map[raw];
-
   return raw.toLocaleUpperCase("tr-TR");
 }
 
