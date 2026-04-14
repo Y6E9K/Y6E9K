@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from .engine.solver import build_dictionary_index, generate_moves
+from .engine.solver import generate_moves
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -36,7 +36,6 @@ def load_dictionary_words() -> List[str]:
 
 
 WORDS = load_dictionary_words()
-DICT_INDEX = build_dictionary_index(WORDS)
 
 
 class SolveRequest(BaseModel):
@@ -62,7 +61,7 @@ def root():
         "ok": True,
         "name": "Kelime Asistanı API",
         "docs": "/docs",
-        "wordCount": len(DICT_INDEX.word_set),
+        "wordCount": len(WORDS),
         "files": len(list(DATA_DIR.glob("*"))) if DATA_DIR.exists() else 0,
     }
 
@@ -71,7 +70,7 @@ def root():
 def health():
     return {
         "ok": True,
-        "wordCount": len(DICT_INDEX.word_set),
+        "wordCount": len(WORDS),
         "files": len(list(DATA_DIR.glob("*"))) if DATA_DIR.exists() else 0,
     }
 
@@ -80,8 +79,6 @@ def health():
 def get_board(board_type: str):
     if board_type == "9x9":
         size = 9
-
-        # 9x9 bonus yerleşimini burada kendi doğru düzenine göre değiştir
         bonus_grid = [
             [None, None, "K3", None, None, None, "K3", None, None],
             [None, "H2", None, None, "H3", None, None, "H2", None],
@@ -126,8 +123,7 @@ def solve(payload: SolveRequest):
     suggestions = generate_moves(
         board=payload.board,
         rack=payload.rack,
-        index=DICT_INDEX,
+        dictionary=WORDS,
         limit=50,
     )
-
     return {"suggestions": suggestions}
