@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Any
+from typing import Any, List
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -74,16 +74,17 @@ def health():
 @app.get("/api/board/{board_type}")
 def get_board(board_type: str):
     if board_type == "9x9":
+        # Kullanıcının referans ekran görüntüsündeki 9x9 bonus yerleşimi
         bonus_grid = [
-            ["K3", None, None, "H2", None, None, "K3", None, None],
-            [None, "H3", None, None, "K2", None, None, "H3", None],
-            [None, None, "H2", None, None, None, "H2", None, None],
-            ["H2", None, None, "H3", None, "H3", None, None, "H2"],
-            [None, "K2", None, None, "START", None, None, "K2", None],
-            ["H2", None, None, "H3", None, "H3", None, None, "H2"],
-            [None, None, "H2", None, None, None, "H2", None, None],
-            [None, "H3", None, None, "K2", None, None, "H3", None],
-            ["K3", None, None, "H2", None, None, "K3", None, None],
+            ["K3", None, None, None, "H3", None, None, None, "K3"],
+            [None, "K2", None, "H2", None, "H2", None, "K2", None],
+            [None, None, "H3", None, None, None, "H3", None, None],
+            [None, "H2", None, None, None, None, None, "H2", None],
+            ["H3", None, None, None, "START", None, None, None, "H3"],
+            [None, "H2", None, None, None, None, None, "H2", None],
+            [None, None, "H3", None, None, None, "H3", None, None],
+            [None, "K2", None, "H2", None, "H2", None, "K2", None],
+            ["K3", None, None, None, "H3", None, None, None, "K3"],
         ]
     else:
         bonus_grid = [
