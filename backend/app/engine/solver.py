@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import heapq
 import time
 from collections import Counter
-from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Set, Tuple
-
 
 DIR_RIGHT = "YATAY"
 DIR_DOWN = "DIKEY"
@@ -29,7 +26,6 @@ LETTER_SCORES = {
 
 WORD_MULTIPLIERS = {"K2": 2, "K3": 3, "START": 2}
 LETTER_MULTIPLIERS = {"H2": 2, "H3": 3}
-TR_LETTERS = tuple(ch for ch in LETTER_SCORES.keys() if ch != "?")
 
 
 def normalize_letter(ch: str) -> str:
@@ -46,50 +42,7 @@ def normalize_word(word: str) -> str:
 
 
 def is_valid_word(word: str) -> bool:
-    return len(word) >= 2 and all(ch in LETTER_SCORES and ch != "?" for ch in word)
-
-
-class TrieNode:
-    __slots__ = ("children", "terminal")
-
-    def __init__(self) -> None:
-        self.children: Dict[str, "TrieNode"] = {}
-        self.terminal = False
-
-
-@dataclass
-class DictionaryIndex:
-    word_set: Set[str]
-    words_by_length: Dict[int, List[str]]
-    trie: TrieNode
-    letters: Tuple[str, ...] = field(default_factory=lambda: TR_LETTERS)
-
-
-def build_dictionary_index(words: Iterable[str]) -> DictionaryIndex:
-    word_set: Set[str] = set()
-    words_by_length: Dict[int, List[str]] = {}
-    trie = TrieNode()
-
-    for raw in words:
-        word = normalize_word(raw)
-        if not is_valid_word(word):
-            continue
-        if word in word_set:
-            continue
-
-        word_set.add(word)
-        words_by_length.setdefault(len(word), []).append(word)
-
-        node = trie
-        for ch in word:
-            node = node.children.setdefault(ch, TrieNode())
-        node.terminal = True
-
-    return DictionaryIndex(
-        word_set=word_set,
-        words_by_length=words_by_length,
-        trie=trie,
-    )
+    return len(word) >= 2 and all(ch in LETTER_SCORES for ch in word)
 
 
 def get_board_size(board: List[List[dict]]) -> int:
@@ -102,11 +55,11 @@ def in_bounds(board: List[List[dict]], row: int, col: int) -> bool:
 
 
 def get_center(board: List[List[dict]]) -> Tuple[int, int]:
-    size = get_board_size(board)
-    return size // 2, size // 2
+    s = get_board_size(board)
+    return s // 2, s // 2
 
 
-def get_cell(board: List[List[dict]], row: int, col: int):
+def get_cell(board: List[List[dict]], row: int, col: int) -> dict:
     return board[row][col]
 
 
@@ -129,126 +82,97 @@ def get_bonus(board: List[List[dict]], row: int, col: int) -> Optional[str]:
 
 
 def board_has_tiles(board: List[List[dict]]) -> bool:
-    for row in range(len(board)):
-        for col in range(len(board[row])):
-            if get_letter(board, row, col):
+    for r in range(len(board)):
+        for c in range(len(board[r])):
+            if get_letter(board, r, c):
                 return True
     return False
 
 
 def rack_counter(rack: List[str]) -> Counter:
-    cnt = Counter()
+    result = Counter()
     for ch in rack:
         n = normalize_letter(ch)
         if n:
-            cnt[n] += 1
-    return cnt
+            result[n] += 1
+    return result
 
 
 def board_counter(board: List[List[dict]]) -> Counter:
-    cnt = Counter()
-    for row in range(len(board)):
-        for col in range(len(board[row])):
-            ch = get_letter(board, row, col)
+    result = Counter()
+    for r in range(len(board)):
+        for c in range(len(board[r])):
+            ch = get_letter(board, r, c)
             if ch:
-                cnt[ch] += 1
-    return cnt
+                result[ch] += 1
+    return result
 
 
-def get_anchor_cells(board: List[List[dict]]) -> List[Tuple[int, int]]:
-    if not board_has_tiles(board):
-        return [get_center(board)]
+def dictionary_index(dictionary: Iterable[str]) -> Tuple[List[str], Set[str], Dict[int, List[str]]]:
+    words: List[str] = []
+    word_set: Set[str] = set()
+    words_by_length: Dict[int, List[str]] = {}
 
+    for raw in dictionary:
+        word = normalize_word(raw)
+        if not is_valid_word(word):
+            continue
+        if word in word_set:
+            continue
+        word_set.add(word)
+        words.append(word)
+        words_by_length.setdefault(len(word), []).append(word)
+
+    return words, word_set, words_by_length
+
+
+def candidate_possible(word: str, rack: Counter, board_letters: Counter) -> bool:
+    available = rack + board_letters
+    need = Counter(word)
+    return all(available[ch] >= cnt for ch, cnt in need.items())
+
+
+def get_anchor_cells(board: List[List[dict]]) -> Set[Tuple[int, int]]:
     anchors: Set[Tuple[int, int]] = set()
-    for row in range(len(board)):
-        for col in range(len(board[row])):
-            if get_letter(board, row, col):
-                for nr, nc in ((row - 1, col), (row + 1, col), (row, col - 1), (row, col + 1)):
+
+    if not board_has_tiles(board):
+        anchors.add(get_center(board))
+        return anchors
+
+    for r in range(len(board)):
+        for c in range(len(board[r])):
+            if get_letter(board, r, c):
+                for nr, nc in ((r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)):
                     if in_bounds(board, nr, nc) and not get_letter(board, nr, nc):
                         anchors.add((nr, nc))
-
-    center = get_center(board)
-    return sorted(anchors, key=lambda rc: abs(rc[0] - center[0]) + abs(rc[1] - center[1]))
+    return anchors
 
 
-def before_cell(direction: str, row: int, col: int) -> Tuple[int, int]:
-    return (row, col - 1) if direction == DIR_RIGHT else (row - 1, col)
-
-
-def next_cell(direction: str, row: int, col: int) -> Tuple[int, int]:
-    return (row, col + 1) if direction == DIR_RIGHT else (row + 1, col)
-
-
-def perpendicular_fragments(board: List[List[dict]], row: int, col: int, direction: str) -> Tuple[str, str]:
-    if direction == DIR_RIGHT:
-        dr1, dc1 = -1, 0
-        dr2, dc2 = 1, 0
-    else:
-        dr1, dc1 = 0, -1
-        dr2, dc2 = 0, 1
-
-    left = []
-    r, c = row + dr1, col + dc1
-    while in_bounds(board, r, c):
-        ch = get_letter(board, r, c)
-        if not ch:
-            break
-        left.append(ch)
-        r += dr1
-        c += dc1
-    left.reverse()
-
-    right = []
-    r, c = row + dr2, col + dc2
-    while in_bounds(board, r, c):
-        ch = get_letter(board, r, c)
-        if not ch:
-            break
-        right.append(ch)
-        r += dr2
-        c += dc2
-
-    return ("".join(left), "".join(right))
-
-
-def cross_check_letters(
-    board: List[List[dict]],
-    row: int,
-    col: int,
-    direction: str,
-    word_set: Set[str],
-    letters: Tuple[str, ...],
-) -> Set[str]:
-    existing = get_letter(board, row, col)
-    if existing:
-        return {existing}
-
-    prefix, suffix = perpendicular_fragments(board, row, col, direction)
-    if not prefix and not suffix:
-        return set(letters)
-
-    allowed = set()
-    for ch in letters:
-        word = f"{prefix}{ch}{suffix}"
-        if word in word_set:
-            allowed.add(ch)
-    return allowed
+def starts_for_anchor(anchor_row: int, anchor_col: int, word_len: int, direction: str) -> List[Tuple[int, int]]:
+    starts = []
+    for i in range(word_len):
+        row = anchor_row - (i if direction == DIR_DOWN else 0)
+        col = anchor_col - (i if direction == DIR_RIGHT else 0)
+        starts.append((row, col))
+    return starts
 
 
 def line_letters(board: List[List[dict]], row: int, col: int, direction: str, length: int) -> Optional[List[str]]:
     out = []
     for i in range(length):
-        rr = row + (i if direction == DIR_DOWN else 0)
-        cc = col + (i if direction == DIR_RIGHT else 0)
-        if not in_bounds(board, rr, cc):
+        r = row + (i if direction == DIR_DOWN else 0)
+        c = col + (i if direction == DIR_RIGHT else 0)
+        if not in_bounds(board, r, c):
             return None
-        out.append(get_letter(board, rr, cc))
+        out.append(get_letter(board, r, c))
     return out
 
 
 def has_blocking_before_after(board: List[List[dict]], row: int, col: int, direction: str, length: int) -> bool:
-    br, bc = before_cell(direction, row, col)
-    ar, ac = row + ((length) if direction == DIR_DOWN else 0), col + ((length) if direction == DIR_RIGHT else 0)
+    dr, dc = (0, 1) if direction == DIR_RIGHT else (1, 0)
+
+    br, bc = row - dr, col - dc
+    ar, ac = row + dr * length, col + dc * length
 
     if in_bounds(board, br, bc) and get_letter(board, br, bc):
         return True
@@ -258,10 +182,11 @@ def has_blocking_before_after(board: List[List[dict]], row: int, col: int, direc
 
 
 def passes_center(row: int, col: int, direction: str, length: int, center: Tuple[int, int]) -> bool:
+    cr, cc = center
     for i in range(length):
-        rr = row + (i if direction == DIR_DOWN else 0)
-        cc = col + (i if direction == DIR_RIGHT else 0)
-        if (rr, cc) == center:
+        r = row + (i if direction == DIR_DOWN else 0)
+        c = col + (i if direction == DIR_RIGHT else 0)
+        if (r, c) == (cr, cc):
             return True
     return False
 
@@ -272,7 +197,10 @@ def touches_neighbor(board: List[List[dict]], row: int, col: int, direction: str
         if direction == DIR_RIGHT
         else ((row, col - 1), (row, col + 1))
     )
-    return any(in_bounds(board, nr, nc) and get_letter(board, nr, nc) for nr, nc in neighbors)
+    for nr, nc in neighbors:
+        if in_bounds(board, nr, nc) and get_letter(board, nr, nc):
+            return True
+    return False
 
 
 def build_word_coords(
@@ -282,27 +210,24 @@ def build_word_coords(
     direction: str,
     placed_map: Dict[Tuple[int, int], str],
 ) -> List[Tuple[int, int, str]]:
-    if direction == DIR_RIGHT:
-        dr, dc = 0, 1
-    else:
-        dr, dc = 1, 0
+    dr, dc = (0, 1) if direction == DIR_RIGHT else (1, 0)
 
-    rr, cc = row, col
-    while in_bounds(board, rr - dr, cc - dc):
-        ch = placed_map.get((rr - dr, cc - dc)) or get_letter(board, rr - dr, cc - dc)
+    r, c = row, col
+    while in_bounds(board, r - dr, c - dc):
+        ch = placed_map.get((r - dr, c - dc)) or get_letter(board, r - dr, c - dc)
         if not ch:
             break
-        rr -= dr
-        cc -= dc
+        r -= dr
+        c -= dc
 
     coords: List[Tuple[int, int, str]] = []
-    while in_bounds(board, rr, cc):
-        ch = placed_map.get((rr, cc)) or get_letter(board, rr, cc)
+    while in_bounds(board, r, c):
+        ch = placed_map.get((r, c)) or get_letter(board, r, c)
         if not ch:
             break
-        coords.append((rr, cc, ch))
-        rr += dr
-        cc += dc
+        coords.append((r, c, ch))
+        r += dr
+        c += dc
 
     return coords
 
@@ -319,10 +244,10 @@ def score_word_coords(
     total = 0
     word_mul = 1
 
-    for row, col, ch in coords:
+    for r, c, ch in coords:
         score = LETTER_SCORES.get(ch, 0)
-        if (row, col) in newly_placed:
-            bonus = get_bonus(board, row, col)
+        if (r, c) in newly_placed:
+            bonus = get_bonus(board, r, c)
             if bonus in LETTER_MULTIPLIERS:
                 score *= LETTER_MULTIPLIERS[bonus]
             elif bonus in WORD_MULTIPLIERS:
@@ -332,24 +257,44 @@ def score_word_coords(
     return total * word_mul
 
 
-def compute_move_payload(
+def can_consume_from_rack(word: str, line: List[str], rack: Counter) -> bool:
+    need = Counter()
+    jokers = rack.get("?", 0)
+
+    for ch, existing in zip(word, line):
+        if existing:
+            if existing != ch:
+                return False
+        else:
+            need[ch] += 1
+
+    missing = 0
+    for ch, cnt in need.items():
+        have = rack.get(ch, 0)
+        if have < cnt:
+            missing += cnt - have
+
+    return missing <= jokers
+
+
+def validate_move(
     board: List[List[dict]],
     word_set: Set[str],
     word: str,
     row: int,
     col: int,
     direction: str,
+    rack: Counter,
 ) -> Optional[Dict[str, object]]:
     line = line_letters(board, row, col, direction, len(word))
     if line is None:
         return None
+
     if has_blocking_before_after(board, row, col, direction, len(word)):
         return None
-    if board_has_tiles(board):
-        pass
-    else:
-        if not passes_center(row, col, direction, len(word), get_center(board)):
-            return None
+
+    if not can_consume_from_rack(word, line, rack):
+        return None
 
     placed = []
     placed_map: Dict[Tuple[int, int], str] = {}
@@ -358,8 +303,8 @@ def compute_move_payload(
     overlap = 0
 
     for i, ch in enumerate(word):
-        rr = row + (i if direction == DIR_DOWN else 0)
-        cc = col + (i if direction == DIR_RIGHT else 0)
+        r = row + (i if direction == DIR_DOWN else 0)
+        c = col + (i if direction == DIR_RIGHT else 0)
         existing = line[i]
 
         if existing:
@@ -368,17 +313,21 @@ def compute_move_payload(
             overlap += 1
             interaction += 1
         else:
-            placed.append({"row": rr, "col": cc, "letter": ch})
-            placed_map[(rr, cc)] = ch
-            newly_placed.add((rr, cc))
-            if touches_neighbor(board, rr, cc, direction):
+            placed.append({"row": r, "col": c, "letter": ch})
+            placed_map[(r, c)] = ch
+            newly_placed.add((r, c))
+            if touches_neighbor(board, r, c, direction):
                 interaction += 1
 
     if not placed:
         return None
 
-    if board_has_tiles(board) and interaction == 0 and overlap == 0:
-        return None
+    if board_has_tiles(board):
+        if interaction == 0 and overlap == 0:
+            return None
+    else:
+        if not passes_center(row, col, direction, len(word), get_center(board)):
+            return None
 
     main_coords = build_word_coords(board, row, col, direction, placed_map)
     main_word = coords_to_word(main_coords)
@@ -388,19 +337,20 @@ def compute_move_payload(
     total_score = score_word_coords(board, main_coords, newly_placed)
     cross_words: List[str] = []
     created_words: List[str] = [main_word]
-    cross_direction = DIR_DOWN if direction == DIR_RIGHT else DIR_RIGHT
+
+    cross_dir = DIR_DOWN if direction == DIR_RIGHT else DIR_RIGHT
 
     for tile in placed:
-        rr = int(tile["row"])
-        cc = int(tile["col"])
-        cross_coords = build_word_coords(board, rr, cc, cross_direction, placed_map)
+        r = int(tile["row"])
+        c = int(tile["col"])
+        cross_coords = build_word_coords(board, r, c, cross_dir, placed_map)
         cross_word = coords_to_word(cross_coords)
         if len(cross_word) > 1:
             if cross_word not in word_set:
                 return None
             cross_words.append(cross_word)
             created_words.append(cross_word)
-            total_score += score_word_coords(board, cross_coords, {(rr, cc)})
+            total_score += score_word_coords(board, cross_coords, {(r, c)})
 
     return {
         "word": word,
@@ -417,279 +367,89 @@ def compute_move_payload(
     }
 
 
-class TopCollector:
-    def __init__(self, limit: int) -> None:
-        self.limit = limit
-        self.heap: List[Tuple[Tuple, Dict[str, object]]] = []
-        self.seen: Set[Tuple[str, int, int, str]] = set()
-
-    def _rank(self, move: Dict[str, object]) -> Tuple:
-        return (
-            int(move["score"]),
-            len(move["placed"]),
-            int(move["interaction"]),
-            len(move["word"]),
-            -int(move["row"]),
-            -int(move["col"]),
-        )
-
-    def add(self, move: Dict[str, object]) -> None:
-        key = (move["word"], move["row"], move["col"], move["direction"])
-        if key in self.seen:
-            return
-        self.seen.add(key)
-
-        rank = self._rank(move)
-        entry = (rank, move)
-
-        if len(self.heap) < self.limit:
-            heapq.heappush(self.heap, entry)
-        else:
-            if rank > self.heap[0][0]:
-                heapq.heapreplace(self.heap, entry)
-
-    def results(self) -> List[Dict[str, object]]:
-        items = [item[1] for item in self.heap]
-        items.sort(
-            key=lambda m: (
-                -int(m["score"]),
-                -len(m["placed"]),
-                -int(m["interaction"]),
-                -len(m["word"]),
-                m["word"],
-                int(m["row"]),
-                int(m["col"]),
-            )
-        )
-        return items
-
-
 def generate_moves(
     board: List[List[dict]],
     rack: List[str],
-    index: DictionaryIndex,
-    limit: int = 60,
-    fast_seconds: float = 1.2,
-    deep_seconds: float = 4.5,
+    dictionary: Iterable[str],
+    limit: int = 20,
 ) -> List[Dict[str, object]]:
     start_time = time.time()
+    time_limit = 6.0
+    max_checks = 30000
+    checks = 0
+
+    _, word_set, words_by_length = dictionary_index(dictionary)
+
     rack_cnt = rack_counter(rack)
     board_cnt = board_counter(board)
     anchors = get_anchor_cells(board)
-    size = get_board_size(board)
 
-    letters_by_score = tuple(sorted(index.letters, key=lambda ch: (-LETTER_SCORES[ch], ch)))
-    cross_cache: Dict[Tuple[int, int, str], Set[str]] = {}
-    board_empty = not board_has_tiles(board)
-    max_len = min(size, max(2, len(rack) + (6 if board_empty else 8)))
+    max_word_len = min(get_board_size(board), len(rack) + 8)
+    candidate_lengths = sorted(k for k in words_by_length.keys() if 2 <= k <= max_word_len)
 
-    max_rack_letters = len(rack)
+    candidate_words: List[str] = []
+    for ln in candidate_lengths:
+        for word in words_by_length.get(ln, []):
+            if candidate_possible(word, rack_cnt, board_cnt):
+                candidate_words.append(word)
 
-    def get_cross_allowed(row: int, col: int, direction: str) -> Set[str]:
-        key = (row, col, direction)
-        if key not in cross_cache:
-            cross_cache[key] = cross_check_letters(
-                board, row, col, direction, index.word_set, index.letters
-            )
-        return cross_cache[key]
+    moves: List[Dict[str, object]] = []
+    tried = set()
 
-    def can_still_form_word(length: int) -> bool:
-        return 2 <= length <= max_len
-
-    def try_emit(word: str, row: int, col: int, direction: str, collector: TopCollector) -> None:
-        if len(word) < 2 or len(word) > max_len:
-            return
-        move = compute_move_payload(board, index.word_set, word, row, col, direction)
-        if move:
-            collector.add(move)
-
-    def extend_from_start(
-        row: int,
-        col: int,
-        direction: str,
-        anchor: Tuple[int, int],
-        collector: TopCollector,
-        time_deadline: float,
-        max_nodes: int,
-    ) -> int:
-        nodes = 0
-        step = (0, 1) if direction == DIR_RIGHT else (1, 0)
-
-        initial_before = before_cell(direction, row, col)
-        if in_bounds(board, *initial_before) and get_letter(board, *initial_before):
-            return 0
-
-        def dfs(
-            rr: int,
-            cc: int,
-            node: TrieNode,
-            rack_now: Counter,
-            built: List[str],
-            used_tiles: int,
-            touched_anchor: bool,
-        ) -> bool:
-            nonlocal nodes
-            if time.time() > time_deadline:
-                return True
-
-            nodes += 1
-            if nodes > max_nodes:
-                return True
-
-            if not in_bounds(board, rr, cc):
-                if node.terminal and touched_anchor and used_tiles > 0:
-                    try_emit("".join(built), row, col, direction, collector)
-                return False
-
-            existing = get_letter(board, rr, cc)
-
-            if existing:
-                child = node.children.get(existing)
-                if child is None:
-                    return False
-
-                built.append(existing)
-                nr, nc = rr + step[0], cc + step[1]
-
-                if child.terminal and touched_anchor and used_tiles > 0:
-                    after_has = in_bounds(board, nr, nc) and bool(get_letter(board, nr, nc))
-                    if not after_has:
-                        try_emit("".join(built), row, col, direction, collector)
-
-                stop = dfs(
-                    nr,
-                    nc,
-                    child,
-                    rack_now,
-                    built,
-                    used_tiles,
-                    touched_anchor or (rr, cc) == anchor,
-                )
-                built.pop()
-                return stop
-
-            if not can_still_form_word(len(built) + 1):
-                return False
-
-            allowed_here = get_cross_allowed(rr, cc, direction)
-            if not allowed_here:
-                return False
-
-            for ch in letters_by_score:
-                child = node.children.get(ch)
-                if child is None:
-                    continue
-                if ch not in allowed_here:
-                    continue
-
-                used_joker = False
-                if rack_now.get(ch, 0) > 0:
-                    rack_now[ch] -= 1
-                    if rack_now[ch] == 0:
-                        del rack_now[ch]
-                elif rack_now.get("?", 0) > 0:
-                    rack_now["?"] -= 1
-                    if rack_now["?"] == 0:
-                        del rack_now["?"]
-                    used_joker = True
-                else:
-                    continue
-
-                built.append(ch)
-                nr, nc = rr + step[0], cc + step[1]
-
-                next_used_tiles = used_tiles + 1
-                next_touched_anchor = touched_anchor or (rr, cc) == anchor
-
-                if child.terminal and next_touched_anchor and next_used_tiles > 0:
-                    after_has = in_bounds(board, nr, nc) and bool(get_letter(board, nr, nc))
-                    if not after_has:
-                        try_emit("".join(built), row, col, direction, collector)
-
-                stop = dfs(
-                    nr,
-                    nc,
-                    child,
-                    rack_now,
-                    built,
-                    next_used_tiles,
-                    next_touched_anchor,
-                )
-                built.pop()
-
-                if used_joker:
-                    rack_now["?"] += 1
-                else:
-                    rack_now[ch] += 1
-
-                if stop:
-                    return True
-
-            return False
-
-        dfs(row, col, index.trie, rack_cnt.copy(), [], 0, False)
-        return nodes
-
-    def run_pass(time_budget: float, max_nodes: int, collector: TopCollector) -> None:
-        deadline = time.time() + time_budget
-        visited_starts: Set[Tuple[int, int, str]] = set()
-
-        for anchor in anchors:
-            if time.time() > deadline:
+    stop = False
+    for word in candidate_words:
+        if stop:
+            break
+        for direction in (DIR_RIGHT, DIR_DOWN):
+            if stop:
                 break
-
-            for direction in (DIR_RIGHT, DIR_DOWN):
-                if time.time() > deadline:
+            for ar, ac in anchors:
+                if stop:
                     break
-
-                back_step = (0, -1) if direction == DIR_RIGHT else (-1, 0)
-                start_candidates = []
-
-                # Anchor'dan geriye doğru en fazla rack kadar başlangıç dene
-                rr, cc = anchor
-                start_candidates.append((rr, cc))
-
-                temp_r, temp_c = rr, cc
-                for _ in range(max_rack_letters):
-                    pr, pc = temp_r + back_step[0], temp_c + back_step[1]
-                    if not in_bounds(board, pr, pc):
+                for row, col in starts_for_anchor(ar, ac, len(word), direction):
+                    checks += 1
+                    if checks >= max_checks or (time.time() - start_time) > time_limit:
+                        stop = True
                         break
-                    if get_letter(board, pr, pc):
-                        break
-                    start_candidates.append((pr, pc))
-                    temp_r, temp_c = pr, pc
 
-                # Hızlı aşamada anchor'a yakın başlangıçları öne al
-                start_candidates.sort(
-                    key=lambda rc: abs(rc[0] - anchor[0]) + abs(rc[1] - anchor[1])
-                )
-
-                for start in start_candidates:
-                    if time.time() > deadline:
-                        break
-                    key = (start[0], start[1], direction)
-                    if key in visited_starts:
+                    key = (word, row, col, direction)
+                    if key in tried:
                         continue
-                    visited_starts.add(key)
+                    tried.add(key)
 
-                    extend_from_start(
-                        start[0],
-                        start[1],
-                        direction,
-                        anchor,
-                        collector,
-                        deadline,
-                        max_nodes=max_nodes,
+                    move = validate_move(
+                        board=board,
+                        word_set=word_set,
+                        word=word,
+                        row=row,
+                        col=col,
+                        direction=direction,
+                        rack=rack_cnt,
                     )
+                    if move:
+                        moves.append(move)
 
-    collector = TopCollector(limit=max(20, limit))
+    moves.sort(
+        key=lambda m: (
+            -m["score"],
+            -len(m["placed"]),
+            -m["interaction"],
+            -len(m["word"]),
+            m["word"],
+            m["row"],
+            m["col"],
+        )
+    )
 
-    # Aşama 1: hızlı cevap
-    run_pass(time_budget=fast_seconds, max_nodes=18000, collector=collector)
+    unique: List[Dict[str, object]] = []
+    seen = set()
+    for move in moves:
+        key = (move["word"], move["row"], move["col"], move["direction"])
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(move)
+        if len(unique) >= limit:
+            break
 
-    # Aşama 2: derin tarama
-    remaining = deep_seconds - (time.time() - start_time)
-    if remaining > 0:
-        run_pass(time_budget=remaining, max_nodes=120000, collector=collector)
-
-    return collector.results()[:limit]
+    return unique
