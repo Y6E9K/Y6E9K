@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from .engine.solver import generate_moves
+from .engine.solver import build_dictionary_index, generate_moves
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -36,6 +36,7 @@ def load_dictionary_words() -> List[str]:
 
 
 WORDS = load_dictionary_words()
+DICT_INDEX = build_dictionary_index(WORDS)
 
 
 class SolveRequest(BaseModel):
@@ -61,7 +62,7 @@ def root():
         "ok": True,
         "name": "Kelime Asistanı API",
         "docs": "/docs",
-        "wordCount": len(WORDS),
+        "wordCount": len(DICT_INDEX.word_set),
         "files": len(list(DATA_DIR.glob("*"))) if DATA_DIR.exists() else 0,
     }
 
@@ -70,7 +71,7 @@ def root():
 def health():
     return {
         "ok": True,
-        "wordCount": len(WORDS),
+        "wordCount": len(DICT_INDEX.word_set),
         "files": len(list(DATA_DIR.glob("*"))) if DATA_DIR.exists() else 0,
     }
 
@@ -80,15 +81,15 @@ def get_board(board_type: str):
     if board_type == "9x9":
         size = 9
         bonus_grid = [
-            [None, None, "K3", None, None, None, "K3", None, None],
-            [None, "H2", None, None, "H3", None, None, "H2", None],
-            ["K3", None, None, "H2", None, "H2", None, None, "K3"],
-            [None, None, "H2", None, "K2", None, "H2", None, None],
-            [None, "H3", None, "K2", "START", "K2", None, "H3", None],
-            [None, None, "H2", None, "K2", None, "H2", None, None],
-            ["K3", None, None, "H2", None, "H2", None, None, "K3"],
-            [None, "H2", None, None, "H3", None, None, "H2", None],
-            [None, None, "K3", None, None, None, "K3", None, None],
+            ["K3", None, None, None, "H3", None, None, None, "K3"],
+            [None, "K2", None, "H2", None, "H2", None, "K2", None],
+            [None, None, "H3", None, None, None, "H3", None, None],
+            [None, "H2", None, None, None, None, None, "H2", None],
+            ["H3", None, None, None, "START", None, None, None, "H3"],
+            [None, "H2", None, None, None, None, None, "H2", None],
+            [None, None, "H3", None, None, None, "H3", None, None],
+            [None, "K2", None, "H2", None, "H2", None, "K2", None],
+            ["K3", None, None, None, "H3", None, None, None, "K3"],
         ]
     else:
         size = 15
@@ -120,10 +121,16 @@ def get_board(board_type: str):
 
 @app.post("/api/solve")
 def solve(payload: SolveRequest):
-    suggestions = generate_moves(
-        board=payload.board,
-        rack=payload.rack,
-        dictionary=WORDS,
-        limit=50,
-    )
-    return {"suggestions": suggestions}
+    try:
+        suggestions = generate_moves(
+            board=payload.board,
+            rack=payload.rack,
+            index=DICT_INDEX,
+            limit=60,
+            fast_seconds=1.2,
+            deep_seconds=4.5,
+        )
+        return {"suggestions": suggestions}
+    except Exception as e:
+        print("SOLVE ERROR:", e)
+        return {"suggestions": [], "error": str(e)}
