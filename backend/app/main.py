@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from .engine.solver import generate_moves
+from .engine.solver import build_dictionary_index, generate_moves
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -36,6 +36,7 @@ def load_dictionary_words() -> List[str]:
 
 
 WORDS = load_dictionary_words()
+DICT_INDEX = build_dictionary_index(WORDS)
 
 
 class SolveRequest(BaseModel):
@@ -61,7 +62,7 @@ def root():
         "ok": True,
         "name": "Kelime Asistanı API",
         "docs": "/docs",
-        "wordCount": len(WORDS),
+        "wordCount": len(DICT_INDEX.word_set),
         "files": len(list(DATA_DIR.glob("*"))) if DATA_DIR.exists() else 0,
     }
 
@@ -70,7 +71,7 @@ def root():
 def health():
     return {
         "ok": True,
-        "wordCount": len(WORDS),
+        "wordCount": len(DICT_INDEX.word_set),
         "files": len(list(DATA_DIR.glob("*"))) if DATA_DIR.exists() else 0,
     }
 
@@ -124,8 +125,10 @@ def solve(payload: SolveRequest):
         suggestions = generate_moves(
             board=payload.board,
             rack=payload.rack,
-            dictionary=WORDS,
-            limit=20,
+            index=DICT_INDEX,
+            limit=60,
+            fast_seconds=1.2,
+            deep_seconds=4.5,
         )
         return {"suggestions": suggestions}
     except Exception as e:
