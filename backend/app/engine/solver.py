@@ -170,16 +170,6 @@ def rack_counter(rack: List[str]) -> Counter:
     return cnt
 
 
-def board_counter(board: List[List[dict]]) -> Counter:
-    cnt = Counter()
-    for row in range(len(board)):
-        for col in range(len(board[row])):
-            ch = get_letter(board, row, col)
-            if ch:
-                cnt[ch] += 1
-    return cnt
-
-
 def get_anchor_cells(board: List[List[dict]]) -> List[Tuple[int, int]]:
     if not board_has_tiles(board):
         return [get_center(board)]
@@ -524,7 +514,11 @@ def generate_moves(
         max_nodes: int,
     ) -> int:
         nodes = 0
-        step = (0, 1) if direction == DIR_RIGHT else (1, 0)
+
+        if direction == DIR_RIGHT:
+            step_r, step_c = 0, 1
+        else:
+            step_r, step_c = 1, 0
 
         initial_before = before_cell(direction, row, col)
         if in_bounds(board, *initial_before) and get_letter(board, *initial_before):
@@ -540,6 +534,7 @@ def generate_moves(
             touched_anchor: bool,
         ) -> bool:
             nonlocal nodes
+
             if time.time() > time_deadline:
                 return True
 
@@ -560,7 +555,7 @@ def generate_moves(
                     return False
 
                 built.append(existing)
-                nr, nc = rr + step[0], cc + step[1]
+                nr, nc = rr + step_r, cc + step_c
 
                 if child.terminal and touched_anchor and used_tiles > 0:
                     after_has = in_bounds(board, nr, nc) and bool(get_letter(board, nr, nc))
@@ -601,7 +596,7 @@ def generate_moves(
                     continue
 
                 built.append(ch)
-                nr, nc = rr + step[0], cc + step[1]
+                nr, nc = rr + step_r, cc + step_c
 
                 next_used_tiles = used_tiles + 1
                 next_touched_anchor = touched_anchor or (rr, cc) == anchor
@@ -647,7 +642,11 @@ def generate_moves(
                 if time.time() > deadline:
                     break
 
-                back_step = (0, -1) if direction == DIR_RIGHT else (-1, 0)
+                if direction == DIR_RIGHT:
+                    back_step_r, back_step_c = 0, -1
+                else:
+                    back_step_r, back_step_c = -1, 0
+
                 start_candidates = []
 
                 rr, cc = anchor
@@ -655,7 +654,7 @@ def generate_moves(
 
                 temp_r, temp_c = rr, cc
                 for _ in range(max_rack_letters):
-                    pr, pc = temp_r + back_step[0], temp_c + back_step[1]
+                    pr, pc = temp_r + back_step_r, temp_c + back_step_c
                     if not in_bounds(board, pr, pc):
                         break
                     if get_letter(board, pr, pc):
@@ -670,6 +669,7 @@ def generate_moves(
                 for start in start_candidates:
                     if time.time() > deadline:
                         break
+
                     key = (start[0], start[1], direction)
                     if key in visited_starts:
                         continue
