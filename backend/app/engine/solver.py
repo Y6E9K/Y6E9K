@@ -435,8 +435,9 @@ def compute_move_payload(
 class TopCollector:
     def __init__(self, limit: int) -> None:
         self.limit = limit
-        self.heap: List[Tuple[Tuple, Dict[str, object]]] = []
+        self.heap: List[Tuple[Tuple, int, Dict[str, object]]] = []
         self.seen: Set[Tuple[str, int, int, str]] = set()
+        self.counter = 0
 
     def _rank(self, move: Dict[str, object]) -> Tuple:
         return (
@@ -455,7 +456,8 @@ class TopCollector:
         self.seen.add(key)
 
         rank = self._rank(move)
-        entry = (rank, move)
+        self.counter += 1
+        entry = (rank, self.counter, move)
 
         if len(self.heap) < self.limit:
             heapq.heappush(self.heap, entry)
@@ -464,7 +466,7 @@ class TopCollector:
                 heapq.heapreplace(self.heap, entry)
 
     def results(self) -> List[Dict[str, object]]:
-        items = [item[1] for item in self.heap]
+        items = [item[2] for item in self.heap]
         items.sort(
             key=lambda m: (
                 -int(m["score"]),
@@ -477,7 +479,6 @@ class TopCollector:
             )
         )
         return items
-
 
 def generate_moves(
     board: List[List[dict]],
