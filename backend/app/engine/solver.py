@@ -282,18 +282,26 @@ def score_word_coords(
     board: List[List[dict]],
     coords: List[Tuple[int, int, str]],
     newly_placed: Set[Tuple[int, int]],
+    joker_map: Dict[Tuple[int, int], bool],
 ) -> int:
     total = 0
     word_mul = 1
 
     for row, col, ch in coords:
-        score = LETTER_SCORES.get(ch, 0)
+        is_joker = joker_map.get((row, col), False)
+
+        if is_joker:
+            score = 0
+        else:
+            score = LETTER_SCORES.get(ch, 0)
+
         if (row, col) in newly_placed:
             bonus = get_bonus(board, row, col)
             if bonus in LETTER_MULTIPLIERS:
                 score *= LETTER_MULTIPLIERS[bonus]
             elif bonus in WORD_MULTIPLIERS:
                 word_mul *= WORD_MULTIPLIERS[bonus]
+
         total += score
 
     return total * word_mul
@@ -354,7 +362,11 @@ def compute_move_payload(
     row: int,
     col: int,
     direction: str,
+    joker_positions: Optional[Set[Tuple[int, int]]] = None,
 ) -> Optional[Dict[str, object]]:
+    if joker_positions is None:
+        joker_positions = set()
+
     line = line_letters(board, row, col, direction, len(word))
     if line is None:
         return None
@@ -366,6 +378,7 @@ def compute_move_payload(
 
     placed = []
     placed_map: Dict[Tuple[int, int], str] = {}
+    joker_map: Dict[Tuple[int, int], bool] = {}
     newly_placed: Set[Tuple[int, int]] = set()
     interaction = 0
     overlap = 0
@@ -383,9 +396,19 @@ def compute_move_payload(
         else:
             if not is_cross_valid(board, rr, cc, direction, ch, word_set):
                 return None
-            placed.append({"row": rr, "col": cc, "letter": ch})
+
+            is_joker = (rr, cc) in joker_positions
+
+            placed.append({
+                "row": rr,
+                "col": cc,
+                "letter": ch,
+                "is_joker": is_joker,
+            })
             placed_map[(rr, cc)] = ch
+            joker_map[(rr, cc)] = is_joker
             newly_placed.add((rr, cc))
+
             if touches_neighbor(board, rr, cc, direction):
                 interaction += 1
 
@@ -400,7 +423,7 @@ def compute_move_payload(
     if main_word != word or main_word not in word_set:
         return None
 
-    total_score = score_word_coords(board, main_coords, newly_placed)
+    total_score = score_word_coords(board, main_coords, newly_placed, joker_map)
     cross_words: List[str] = []
     created_words: List[str] = [main_word]
     cross_direction = DIR_DOWN if direction == DIR_RIGHT else DIR_RIGHT
@@ -415,7 +438,7 @@ def compute_move_payload(
                 return None
             cross_words.append(cross_word)
             created_words.append(cross_word)
-            total_score += score_word_coords(board, cross_coords, {(rr, cc)})
+            total_score += score_word_coords(board, cross_coords, {(rr, cc)}, joker_map)
 
     return {
         "word": word,
@@ -480,6 +503,7 @@ class TopCollector:
         )
         return items
 
+
 def generate_moves(
     board: List[List[dict]],
     rack: List[str],
@@ -498,10 +522,25 @@ def generate_moves(
     max_len = min(size, max(2, len(rack) + (6 if board_empty else 8)))
     max_rack_letters = len(rack)
 
-    def try_emit(word: str, row: int, col: int, direction: str, collector: TopCollector) -> None:
+    def try_emit(
+        word: str,
+        row: int,
+        col: int,
+        direction: str,
+        collector: TopCollector,
+        joker_positions: Set[Tuple[int, int]],
+    ) -> None:
         if len(word) < 2 or len(word) > max_len:
             return
-        move = compute_move_payload(board, index.word_set, word, row, col, direction)
+        move = compute_move_payload(
+            board,
+            index.word_set,
+            word,
+            row,
+            col,
+            direction,
+            joker_positions=joker_positions,
+        )
         if move:
             collector.add(move)
 
@@ -533,6 +572,7 @@ def generate_moves(
             built: List[str],
             used_tiles: int,
             touched_anchor: bool,
+            joker_positions: Set[Tuple[int, int]],
         ) -> bool:
             nonlocal nodes
 
@@ -545,7 +585,7 @@ def generate_moves(
 
             if not in_bounds(board, rr, cc):
                 if node.terminal and touched_anchor and used_tiles > 0:
-                    try_emit("".join(built), row, col, direction, collector)
+                    try_emit("".join(built), row, col, direction, collector, set(joker_positions))
                 return False
 
             existing = get_letter(board, rr, cc)
@@ -561,7 +601,7 @@ def generate_moves(
                 if child.terminal and touched_anchor and used_tiles > 0:
                     after_has = in_bounds(board, nr, nc) and bool(get_letter(board, nr, nc))
                     if not after_has:
-                        try_emit("".join(built), row, col, direction, collector)
+                        try_emit("".join(built), row, col, direction, collector, set(joker_positions))
 
                 stop = dfs(
                     nr,
@@ -571,6 +611,7 @@ def generate_moves(
                     built,
                     used_tiles,
                     touched_anchor or (rr, cc) == anchor,
+                    joker_positions,
                 )
                 built.pop()
                 return stop
@@ -584,6 +625,8 @@ def generate_moves(
                     continue
 
                 used_joker = False
+                added_joker_pos = False
+
                 if rack_now.get(ch, 0) > 0:
                     rack_now[ch] -= 1
                     if rack_now[ch] == 0:
@@ -593,6 +636,8 @@ def generate_moves(
                     if rack_now["?"] == 0:
                         del rack_now["?"]
                     used_joker = True
+                    joker_positions.add((rr, cc))
+                    added_joker_pos = True
                 else:
                     continue
 
@@ -605,7 +650,7 @@ def generate_moves(
                 if child.terminal and next_touched_anchor and next_used_tiles > 0:
                     after_has = in_bounds(board, nr, nc) and bool(get_letter(board, nr, nc))
                     if not after_has:
-                        try_emit("".join(built), row, col, direction, collector)
+                        try_emit("".join(built), row, col, direction, collector, set(joker_positions))
 
                 stop = dfs(
                     nr,
@@ -615,8 +660,12 @@ def generate_moves(
                     built,
                     next_used_tiles,
                     next_touched_anchor,
+                    joker_positions,
                 )
                 built.pop()
+
+                if added_joker_pos:
+                    joker_positions.remove((rr, cc))
 
                 if used_joker:
                     rack_now["?"] += 1
@@ -628,7 +677,7 @@ def generate_moves(
 
             return False
 
-        dfs(row, col, index.trie, rack_cnt.copy(), [], 0, False)
+        dfs(row, col, index.trie, rack_cnt.copy(), [], 0, False, set())
         return nodes
 
     def run_pass(time_budget: float, max_nodes: int, collector: TopCollector) -> None:
