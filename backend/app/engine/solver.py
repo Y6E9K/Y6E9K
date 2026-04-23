@@ -188,7 +188,14 @@ def get_anchor_cells(board: List[List[dict]]) -> List[Tuple[int, int]]:
                         anchors.add((nr, nc))
 
     center = get_center(board)
-    return sorted(anchors, key=lambda rc: abs(rc[0] - center[0]) + abs(rc[1] - center[1]))
+    return sorted(
+        anchors,
+        key=lambda rc: (
+            abs(rc[0] - center[0]) + abs(rc[1] - center[1]),
+            rc[0],
+            rc[1],
+        ),
+    )
 
 
 def before_cell(direction: str, row: int, col: int) -> Tuple[int, int]:
@@ -399,12 +406,14 @@ def compute_move_payload(
 
             is_joker = (rr, cc) in joker_positions
 
-            placed.append({
-                "row": rr,
-                "col": cc,
-                "letter": ch,
-                "is_joker": is_joker,
-            })
+            placed.append(
+                {
+                    "row": rr,
+                    "col": cc,
+                    "letter": ch,
+                    "is_joker": is_joker,
+                }
+            )
             placed_map[(rr, cc)] = ch
             joker_map[(rr, cc)] = is_joker
             newly_placed.add((rr, cc))
@@ -511,6 +520,9 @@ def generate_moves(
     limit: int = 60,
     fast_seconds: float = 1.2,
     deep_seconds: float = 4.5,
+    fast_nodes: int = 18000,
+    deep_nodes: int = 120000,
+    backtrack_extra: int = 3,
 ) -> List[Dict[str, object]]:
     start_time = time.time()
     rack_cnt = rack_counter(rack)
@@ -703,7 +715,7 @@ def generate_moves(
                 start_candidates.append((rr, cc))
 
                 temp_r, temp_c = rr, cc
-                for _ in range(max_rack_letters):
+                for _ in range(max_rack_letters + backtrack_extra):
                     pr, pc = temp_r + back_step_r, temp_c + back_step_c
                     if not in_bounds(board, pr, pc):
                         break
@@ -737,10 +749,10 @@ def generate_moves(
 
     collector = TopCollector(limit=max(20, limit))
 
-    run_pass(time_budget=fast_seconds, max_nodes=18000, collector=collector)
+    run_pass(time_budget=fast_seconds, max_nodes=fast_nodes, collector=collector)
 
     remaining = deep_seconds - (time.time() - start_time)
     if remaining > 0:
-        run_pass(time_budget=remaining, max_nodes=120000, collector=collector)
+        run_pass(time_budget=remaining, max_nodes=deep_nodes, collector=collector)
 
     return collector.results()[:limit]
