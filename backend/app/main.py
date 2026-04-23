@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, Literal
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -43,6 +43,7 @@ class SolveRequest(BaseModel):
     boardType: str
     board: List[List[Any]]
     rack: List[str]
+    mode: Literal["fast", "deep", "max"] = "deep"
 
 
 app = FastAPI(title="Kelime Asistanı API")
@@ -122,15 +123,47 @@ def get_board(board_type: str):
 @app.post("/api/solve")
 def solve(payload: SolveRequest):
     try:
+        mode_settings = {
+            "fast": {
+                "limit": 40,
+                "fast_seconds": 0.8,
+                "deep_seconds": 1.8,
+                "fast_nodes": 12000,
+                "deep_nodes": 50000,
+                "backtrack_extra": 1,
+            },
+            "deep": {
+                "limit": 80,
+                "fast_seconds": 1.4,
+                "deep_seconds": 5.5,
+                "fast_nodes": 30000,
+                "deep_nodes": 180000,
+                "backtrack_extra": 3,
+            },
+            "max": {
+                "limit": 150,
+                "fast_seconds": 2.0,
+                "deep_seconds": 10.0,
+                "fast_nodes": 70000,
+                "deep_nodes": 500000,
+                "backtrack_extra": 5,
+            },
+        }
+
+        settings = mode_settings[payload.mode]
+
         suggestions = generate_moves(
             board=payload.board,
             rack=payload.rack,
             index=DICT_INDEX,
-            limit=60,
-            fast_seconds=1.2,
-            deep_seconds=4.5,
+            limit=settings["limit"],
+            fast_seconds=settings["fast_seconds"],
+            deep_seconds=settings["deep_seconds"],
+            fast_nodes=settings["fast_nodes"],
+            deep_nodes=settings["deep_nodes"],
+            backtrack_extra=settings["backtrack_extra"],
         )
-        return {"suggestions": suggestions}
+        return {"suggestions": suggestions, "mode": payload.mode}
     except Exception as e:
         print("SOLVE ERROR:", e)
         return {"suggestions": [], "error": str(e)}
