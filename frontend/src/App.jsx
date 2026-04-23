@@ -6,6 +6,7 @@ const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const MAX_TABS = 7;
 const VALID_TR_CELL = /^[ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ?]$/;
 const VALID_TR_RACK = /^[ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ? ]$/;
+const STORAGE_KEY = "kelime_asistani_state_v2";
 
 function normalizeTR(value) {
   if (!value) return "";
@@ -189,9 +190,7 @@ function extractPlacements(suggestion, board = []) {
       );
   }
 
-  const word = String(
-    suggestion.word || suggestion.kelime || ""
-  )
+  const word = String(suggestion.word || suggestion.kelime || "")
     .split("")
     .map((x) => normalizeTR(x))
     .join("");
@@ -257,6 +256,7 @@ export default function App() {
   const [newBoardType, setNewBoardType] = useState("15x15");
   const [loadingBoard, setLoadingBoard] = useState(false);
   const [activeSuggestionKey, setActiveSuggestionKey] = useState(null);
+  const [solveMode, setSolveMode] = useState("deep");
 
   const rackRefs = useRef([]);
   const renameRefs = useRef({});
@@ -269,11 +269,56 @@ export default function App() {
   );
 
   useEffect(() => {
-    if (!tabs.length) {
-      handleCreateBoard("15x15");
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+
+      if (saved) {
+        const parsed = JSON.parse(saved);
+
+        if (Array.isArray(parsed.tabs) && parsed.tabs.length > 0) {
+          const restoredTabs = parsed.tabs.map((tab) => ({
+            ...tab,
+            previewCells: [],
+            selectedCell: null,
+            loading: false,
+            renameMode: false,
+            suggestions: Array.isArray(tab.suggestions) ? tab.suggestions : [],
+          }));
+
+          setTabs(restoredTabs);
+          setActiveTabId(parsed.activeTabId || restoredTabs[0]?.id || null);
+          setNewBoardType(parsed.newBoardType || "15x15");
+          setSolveMode(parsed.solveMode || "deep");
+          return;
+        }
+      }
+    } catch (err) {
+      console.error("Kayıtlı durum yüklenemedi:", err);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    handleCreateBoard("15x15");
   }, []);
+
+  useEffect(() => {
+    try {
+      const stateToSave = {
+        tabs: tabs.map((tab) => ({
+          ...tab,
+          previewCells: [],
+          selectedCell: null,
+          loading: false,
+          renameMode: false,
+        })),
+        activeTabId,
+        newBoardType,
+        solveMode,
+      };
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+    } catch (err) {
+      console.error("Durum kaydedilemedi:", err);
+    }
+  }, [tabs, activeTabId, newBoardType, solveMode]);
 
   useEffect(() => {
     const handleOutsidePreview = (event) => {
@@ -284,7 +329,8 @@ export default function App() {
         target.closest(".suggestion-item") ||
         target.closest(".board-cell") ||
         target.closest(".rack-input") ||
-        target.closest(".card button")
+        target.closest(".card button") ||
+        target.closest(".new-board-bar select")
       ) {
         return;
       }
@@ -568,6 +614,7 @@ export default function App() {
           }))
         ),
         rack: activeTab.rack.filter(Boolean),
+        mode: solveMode,
       };
 
       const res = await fetch(`${API_BASE}/api/solve`, {
@@ -659,6 +706,15 @@ export default function App() {
           >
             <option value="15x15">15x15</option>
             <option value="9x9">9x9</option>
+          </select>
+
+          <select
+            value={solveMode}
+            onChange={(e) => setSolveMode(e.target.value)}
+          >
+            <option value="fast">Hızlı Mod</option>
+            <option value="deep">Derin Mod</option>
+            <option value="max">Çok Derin Mod</option>
           </select>
 
           <button onClick={() => handleCreateBoard()} disabled={loadingBoard}>
@@ -757,6 +813,15 @@ export default function App() {
                 <button onClick={handleSolve} disabled={activeTab.loading}>
                   {activeTab.loading ? "Hesaplanıyor..." : "En İyi Önerileri Hesapla"}
                 </button>
+              </div>
+
+              <div className="suggestion-sub" style={{ marginBottom: 10 }}>
+                Aktif mod:{" "}
+                {solveMode === "fast"
+                  ? "Hızlı"
+                  : solveMode === "deep"
+                  ? "Derin"
+                  : "Çok Derin"}
               </div>
 
               <div className="suggestions-list">
