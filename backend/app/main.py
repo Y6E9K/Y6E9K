@@ -7,31 +7,25 @@ from pydantic import BaseModel
 
 from .engine.solver import build_dictionary_index, generate_moves
 
-
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 
 
 def load_dictionary_words() -> List[str]:
     words: List[str] = []
-
     if not DATA_DIR.exists():
         return words
-
     for file_path in DATA_DIR.glob("*"):
         if not file_path.is_file():
             continue
-
         try:
             content = file_path.read_text(encoding="utf-8", errors="ignore")
         except Exception:
             continue
-
         for line in content.splitlines():
             line = line.strip()
             if line:
                 words.append(line)
-
     return words
 
 
@@ -62,6 +56,7 @@ def root():
     return {
         "ok": True,
         "name": "Kelime Asistanı API",
+        "docs": "/docs",
         "wordCount": len(DICT_INDEX.word_set),
         "files": len(list(DATA_DIR.glob("*"))) if DATA_DIR.exists() else 0,
     }
@@ -76,49 +71,61 @@ def health():
     }
 
 
+@app.get("/api/board/{board_type}")
+def get_board(board_type: str):
+    if board_type == "9x9":
+        size = 9
+        bonus_grid = [
+            ["K3", None, None, None, "H3", None, None, None, "K3"],
+            [None, "K2", None, "H2", None, "H2", None, "K2", None],
+            [None, None, "H3", None, None, None, "H3", None, None],
+            [None, "H2", None, None, None, None, None, "H2", None],
+            ["H3", None, None, None, "START", None, None, None, "H3"],
+            [None, "H2", None, None, None, None, None, "H2", None],
+            [None, None, "H3", None, None, None, "H3", None, None],
+            [None, "K2", None, "H2", None, "H2", None, "K2", None],
+            ["K3", None, None, None, "H3", None, None, None, "K3"],
+        ]
+    else:
+        size = 15
+        bonus_grid = [
+            [None, None, "K3", None, None, "H2", None, None, None, "H2", None, None, "K3", None, None],
+            [None, "H3", None, None, None, None, "H2", None, "H2", None, None, None, None, "H3", None],
+            ["K3", None, None, None, None, None, None, "K2", None, None, None, None, None, None, "K3"],
+            [None, None, None, "K2", None, None, None, None, None, None, None, "K2", None, None, None],
+            [None, None, None, None, "H3", None, None, None, None, None, "H3", None, None, None, None],
+            ["H2", None, None, None, None, "H2", None, None, None, "H2", None, None, None, None, "H2"],
+            [None, "H2", None, None, None, None, "H2", None, "H2", None, None, None, None, "H2", None],
+            [None, None, "K2", None, None, None, None, "START", None, None, None, None, "K2", None, None],
+            [None, "H2", None, None, None, None, "H2", None, "H2", None, None, None, None, "H2", None],
+            ["H2", None, None, None, None, "H2", None, None, None, "H2", None, None, None, None, "H2"],
+            [None, None, None, None, "H3", None, None, None, None, None, "H3", None, None, None, None],
+            [None, None, None, "K2", None, None, None, None, None, None, None, "K2", None, None, None],
+            ["K3", None, None, None, None, None, None, "K2", None, None, None, None, None, None, "K3"],
+            [None, "H3", None, None, None, None, "H2", None, "H2", None, None, None, None, "H3", None],
+            [None, None, "K3", None, None, "H2", None, None, None, "H2", None, None, "K3", None, None],
+        ]
+    return {"boardType": board_type, "size": size, "bonusGrid": bonus_grid, "center": [size // 2, size // 2]}
+
+
 @app.post("/api/solve")
 def solve(payload: SolveRequest):
     try:
         requested_mode = payload.mode if payload.mode in ("fast", "max") else "fast"
-
-        mode_settings = {
-            "fast": {
-                "limit": 500,
-                "fast_seconds": 3.0,
-                "deep_seconds": 30.0,
-                "fast_nodes": 150000,
-                "deep_nodes": 3000000,
-                "backtrack_extra": 20,
-                "full_sweep": True,
-            },
-            "max": {
-                "limit": 1000,
-                "fast_seconds": 5.0,
-                "deep_seconds": 45.0,
-                "fast_nodes": 300000,
-                "deep_nodes": 6000000,
-                "backtrack_extra": 35,
-                "full_sweep": True,
-            },
-        }
-
-        settings = mode_settings[requested_mode]
-
+        settings = {
+            "fast": {"limit": 500, "seconds": 30.0, "max_checks": 1800000, "backtrack_extra": 20},
+            "max": {"limit": 1000, "seconds": 45.0, "max_checks": 3500000, "backtrack_extra": 35},
+        }[requested_mode]
         suggestions = generate_moves(
             board=payload.board,
             rack=payload.rack,
             index=DICT_INDEX,
             limit=settings["limit"],
-            fast_seconds=settings["fast_seconds"],
-            deep_seconds=settings["deep_seconds"],
-            fast_nodes=settings["fast_nodes"],
-            deep_nodes=settings["deep_nodes"],
+            seconds=settings["seconds"],
+            max_checks=settings["max_checks"],
             backtrack_extra=settings["backtrack_extra"],
-            full_sweep=settings["full_sweep"],
         )
-
         return {"suggestions": suggestions, "mode": requested_mode}
-
     except Exception as e:
         print("SOLVE ERROR:", e)
         return {"suggestions": [], "error": str(e)}
