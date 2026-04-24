@@ -213,6 +213,84 @@ def candidate_start_positions(board: List[List[Any]], word_len: int, anchor_r: i
                 yield row, col
 
 
+def segment_has_connection_candidate(board: List[List[Any]], row: int, col: int, length: int, direction: str) -> bool:
+    """Sadece aday başlangıç genişletmek için hızlı temas kontrolü.
+    Nihai doğrulama yine fits(...) ve all_words_valid(...) içinde yapılır.
+    """
+    has_empty = False
+    has_fixed = False
+    adjacent = False
+
+    for i in range(length):
+        rr = row + (i if direction == DIR_DOWN else 0)
+        cc = col + (i if direction == DIR_RIGHT else 0)
+        ch = get_letter(board, rr, cc)
+
+        if ch:
+            has_fixed = True
+        else:
+            has_empty = True
+            for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                r2, c2 = rr + dr, cc + dc
+                if in_bounds(board, r2, c2) and get_letter(board, r2, c2):
+                    adjacent = True
+
+    return has_empty and (has_fixed or adjacent or board_is_empty(board))
+
+
+def all_legalish_start_positions(board: List[List[Any]], length: int, direction: str):
+    """V8.2 mantığını bozmadan daha fazla kombinasyon denemek için
+    tüm satır/sütun slotlarını aday listesine ekler.
+    Nihai kural kontrolü burada değil, fits/all_words_valid içinde yapılır.
+    """
+    n = board_size(board)
+
+    if direction == DIR_RIGHT:
+        for row in range(n):
+            for col in range(0, n - length + 1):
+                if segment_has_connection_candidate(board, row, col, length, direction):
+                    yield row, col
+    else:
+        for row in range(0, n - length + 1):
+            for col in range(n):
+                if segment_has_connection_candidate(board, row, col, length, direction):
+                    yield row, col
+
+
+def ranked_starts(board: List[List[Any]], starts: Set[Tuple[int, int]], length: int, direction: str):
+    """Daha etkili arama için çok temaslı ve bonuslu slotları önce dener."""
+    def rank(pos):
+        row, col = pos
+        fixed = 0
+        adjacent = 0
+        bonus_score = 0
+        empty_count = 0
+
+        for i in range(length):
+            rr = row + (i if direction == DIR_DOWN else 0)
+            cc = col + (i if direction == DIR_RIGHT else 0)
+            ch = get_letter(board, rr, cc)
+
+            if ch:
+                fixed += 1
+            else:
+                empty_count += 1
+                bonus = get_bonus(board, rr, cc)
+                if bonus in ("K3", "H3"):
+                    bonus_score += 5
+                elif bonus in ("K2", "H2", "START"):
+                    bonus_score += 3
+
+                for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    r2, c2 = rr + dr, cc + dc
+                    if in_bounds(board, r2, c2) and get_letter(board, r2, c2):
+                        adjacent += 1
+
+        return (-fixed, -adjacent, -bonus_score, empty_count, row, col)
+
+    return sorted(starts, key=rank)
+
+
 def build_pattern(board: List[List[Any]], row: int, col: int, length: int, direction: str):
     letters = []
     fixed_positions = {}
@@ -577,9 +655,14 @@ def find_best_moves(
                     for row, col in candidate_start_positions(board, length, ar, ac, direction):
                         starts.add((row, col))
 
+                # Daha fazla kombinasyon: anchor dışı ama kurala uygun olabilecek tüm slotları da aday yap.
+                # Bu özellikle çok dolu tahtada eski v8.2'nin kaçırdığı desenleri yakalar.
+                if len(anchors) > 18 or sum(1 for r in range(board_n) for c in range(board_n) if get_letter(board, r, c)) >= 35:
+                    starts.update(all_legalish_start_positions(board, length, direction))
+
             pattern_cache = {}
 
-            for row, col in starts:
+            for row, col in ranked_starts(board, starts, length, direction):
                 if time.time() > deadline or checks >= max_checks:
                     break
 
@@ -674,7 +757,7 @@ def find_best_moves(
         "suggestions": uniq,
         "message": "" if uniq else "Bu taşlarla tahtaya kurallara uygun kelime yerleştirilemedi.",
         "debug": {
-            "engine": "v8.2_pattern_web",
+            "engine": "v8.2_pattern_web_plus",
             "wordCount": len(index.word_set),
             "rack": list(rack_ctr.elements()),
             "boardSize": board_n,
@@ -708,7 +791,7 @@ def generate_moves(
             "suggestions": [],
             "message": "Harf alanına en az bir taş gir.",
             "debug": {
-                "engine": "v8.2_pattern_web",
+                "engine": "v8.2_pattern_web_plus",
                 "reason": "empty_rack",
                 "wordCount": len(index.word_set),
                 "fallback": False,
@@ -720,7 +803,7 @@ def generate_moves(
             "suggestions": [],
             "message": "Sözlük yüklenmedi. backend/data klasörünü kontrol et.",
             "debug": {
-                "engine": "v8.2_pattern_web",
+                "engine": "v8.2_pattern_web_plus",
                 "reason": "empty_dictionary",
                 "wordCount": 0,
                 "fallback": False,
