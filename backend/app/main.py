@@ -62,12 +62,28 @@ def root():
     }
 
 
+@app.head("/")
+def head_root():
+    return {}
+
+
 @app.get("/api/health")
 def health():
     return {
         "ok": True,
         "wordCount": len(DICT_INDEX.word_set),
         "files": len(list(DATA_DIR.glob("*"))) if DATA_DIR.exists() else 0,
+        "dataDir": str(DATA_DIR),
+    }
+
+
+@app.get("/api/debug")
+def debug():
+    return {
+        "ok": True,
+        "wordCount": len(DICT_INDEX.word_set),
+        "files": [p.name for p in DATA_DIR.glob("*")] if DATA_DIR.exists() else [],
+        "sampleWords": DICT_INDEX.sample_words[:30],
     }
 
 
@@ -113,19 +129,18 @@ def solve(payload: SolveRequest):
     try:
         mode = payload.mode if payload.mode in ("fast", "max") else "fast"
         settings = {
-            "fast": {"limit": 500, "seconds": 8.0, "max_checks": 450000, "fallback_min": 25},
-            "max": {"limit": 1000, "seconds": 25.0, "max_checks": 1800000, "fallback_min": 80},
+            "fast": {"limit": 500, "seconds": 8.0, "max_checks": 500_000},
+            "max": {"limit": 1000, "seconds": 25.0, "max_checks": 2_000_000},
         }[mode]
-        suggestions = generate_moves(
+        result = generate_moves(
             board=payload.board,
             rack=payload.rack,
             index=DICT_INDEX,
             limit=settings["limit"],
             seconds=settings["seconds"],
             max_checks=settings["max_checks"],
-            fallback_min=settings["fallback_min"],
         )
-        return {"suggestions": suggestions, "mode": mode}
+        return {"suggestions": result["suggestions"], "mode": mode, "debug": result["debug"]}
     except Exception as e:
         print("SOLVE ERROR:", e)
         return {"suggestions": [], "error": str(e)}
