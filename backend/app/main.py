@@ -40,7 +40,7 @@ DICT_INDEX = build_dictionary_index(WORDS)
 
 
 class SolveRequest(BaseModel):
-    boardType: str
+    boardType: str = "15x15"
     board: List[List[Any]]
     rack: List[str]
     mode: str = "fast"
@@ -62,6 +62,7 @@ def root():
     return {
         "ok": True,
         "name": "Kelime Asistanı API",
+        "engine": "v8.2 pattern web",
         "docs": "/docs",
         "wordCount": len(DICT_INDEX.word_set),
         "files": len(list(DATA_DIR.glob("*"))) if DATA_DIR.exists() else 0,
@@ -77,6 +78,7 @@ def head_root():
 def health():
     return {
         "ok": True,
+        "engine": "v8.2 pattern web",
         "wordCount": len(DICT_INDEX.word_set),
         "files": len(list(DATA_DIR.glob("*"))) if DATA_DIR.exists() else 0,
         "dataDir": str(DATA_DIR),
@@ -87,6 +89,7 @@ def health():
 def debug():
     return {
         "ok": True,
+        "engine": "v8.2 pattern web",
         "wordCount": len(DICT_INDEX.word_set),
         "files": [p.name for p in DATA_DIR.glob("*")] if DATA_DIR.exists() else [],
         "sampleWords": DICT_INDEX.sample_words[:30],
@@ -141,20 +144,18 @@ def solve(payload: SolveRequest):
     try:
         requested_mode = payload.mode if payload.mode in ("fast", "max") else "fast"
 
-        mode_settings = {
+        settings = {
             "fast": {
                 "limit": 500,
-                "seconds": 8.0,
-                "max_checks": 700_000,
+                "seconds": 12.0,
+                "max_checks": 1_200_000,
             },
             "max": {
                 "limit": 1000,
-                "seconds": 25.0,
-                "max_checks": 2_500_000,
+                "seconds": 28.0,
+                "max_checks": 4_000_000,
             },
-        }
-
-        settings = mode_settings[requested_mode]
+        }[requested_mode]
 
         result = generate_moves(
             board=payload.board,
@@ -168,9 +169,14 @@ def solve(payload: SolveRequest):
         return {
             "suggestions": result["suggestions"],
             "mode": requested_mode,
+            "message": result["message"],
             "debug": result["debug"],
         }
 
     except Exception as e:
         print("SOLVE ERROR:", e)
-        return {"suggestions": [], "error": str(e)}
+        return {
+            "suggestions": [],
+            "message": "Öneriler alınırken hata oluştu.",
+            "error": str(e),
+        }
