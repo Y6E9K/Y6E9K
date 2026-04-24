@@ -53,12 +53,22 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"ok": True, "name": "Kelime Asistanı API", "docs": "/docs", "wordCount": len(DICT_INDEX.word_set), "files": len(list(DATA_DIR.glob("*"))) if DATA_DIR.exists() else 0}
+    return {
+        "ok": True,
+        "name": "Kelime Asistanı API",
+        "docs": "/docs",
+        "wordCount": len(DICT_INDEX.word_set),
+        "files": len(list(DATA_DIR.glob("*"))) if DATA_DIR.exists() else 0,
+    }
 
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "wordCount": len(DICT_INDEX.word_set), "files": len(list(DATA_DIR.glob("*"))) if DATA_DIR.exists() else 0}
+    return {
+        "ok": True,
+        "wordCount": len(DICT_INDEX.word_set),
+        "files": len(list(DATA_DIR.glob("*"))) if DATA_DIR.exists() else 0,
+    }
 
 
 @app.get("/api/board/{board_type}")
@@ -103,10 +113,18 @@ def solve(payload: SolveRequest):
     try:
         mode = payload.mode if payload.mode in ("fast", "max") else "fast"
         settings = {
-            "fast": {"limit": 500, "seconds": 10.0, "max_checks": 650000, "allow_fallback": True},
-            "max": {"limit": 1000, "seconds": 28.0, "max_checks": 2200000, "allow_fallback": True},
+            "fast": {"limit": 500, "seconds": 8.0, "max_checks": 450000, "fallback_min": 25},
+            "max": {"limit": 1000, "seconds": 25.0, "max_checks": 1800000, "fallback_min": 80},
         }[mode]
-        suggestions = generate_moves(payload.board, payload.rack, DICT_INDEX, **settings)
+        suggestions = generate_moves(
+            board=payload.board,
+            rack=payload.rack,
+            index=DICT_INDEX,
+            limit=settings["limit"],
+            seconds=settings["seconds"],
+            max_checks=settings["max_checks"],
+            fallback_min=settings["fallback_min"],
+        )
         return {"suggestions": suggestions, "mode": mode}
     except Exception as e:
         print("SOLVE ERROR:", e)
