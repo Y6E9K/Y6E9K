@@ -531,7 +531,7 @@ def generate_moves(
     board_empty = not board_has_tiles(board)
 
     letters_by_score = tuple(sorted(index.letters, key=lambda ch: (-LETTER_SCORES[ch], ch)))
-    max_len = min(size, max(2, len(rack) + (6 if board_empty else 8)))
+    max_len = min(size, max(2, len(rack) + (10 if board_empty else 12)))
     max_rack_letters = len(rack)
 
     def try_emit(
