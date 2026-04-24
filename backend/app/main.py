@@ -43,8 +43,6 @@ class SolveRequest(BaseModel):
     boardType: str
     board: List[List[Any]]
     rack: List[str]
-    # Sadece "fast" ve "max" kullanılacak.
-    # Eski tarayıcı kayıtlarında "deep" kalırsa hata vermemesi için str bıraktık.
     mode: str = "fast"
 
 
@@ -78,57 +76,12 @@ def health():
     }
 
 
-@app.get("/api/board/{board_type}")
-def get_board(board_type: str):
-    if board_type == "9x9":
-        size = 9
-        bonus_grid = [
-            ["K3", None, None, None, "H3", None, None, None, "K3"],
-            [None, "K2", None, "H2", None, "H2", None, "K2", None],
-            [None, None, "H3", None, None, None, "H3", None, None],
-            [None, "H2", None, None, None, None, None, "H2", None],
-            ["H3", None, None, None, "START", None, None, None, "H3"],
-            [None, "H2", None, None, None, None, None, "H2", None],
-            [None, None, "H3", None, None, None, "H3", None, None],
-            [None, "K2", None, "H2", None, "H2", None, "K2", None],
-            ["K3", None, None, None, "H3", None, None, None, "K3"],
-        ]
-    else:
-        size = 15
-        bonus_grid = [
-            [None, None, "K3", None, None, "H2", None, None, None, "H2", None, None, "K3", None, None],
-            [None, "H3", None, None, None, None, "H2", None, "H2", None, None, None, None, "H3", None],
-            ["K3", None, None, None, None, None, None, "K2", None, None, None, None, None, None, "K3"],
-            [None, None, None, "K2", None, None, None, None, None, None, None, "K2", None, None, None],
-            [None, None, None, None, "H3", None, None, None, None, None, "H3", None, None, None, None],
-            ["H2", None, None, None, None, "H2", None, None, None, "H2", None, None, None, None, "H2"],
-            [None, "H2", None, None, None, None, "H2", None, "H2", None, None, None, None, "H2", None],
-            [None, None, "K2", None, None, None, None, "START", None, None, None, None, "K2", None, None],
-            [None, "H2", None, None, None, None, "H2", None, "H2", None, None, None, None, "H2", None],
-            ["H2", None, None, None, None, "H2", None, None, None, "H2", None, None, None, None, "H2"],
-            [None, None, None, None, "H3", None, None, None, None, None, "H3", None, None, None, None],
-            [None, None, None, "K2", None, None, None, None, None, None, None, "K2", None, None, None],
-            ["K3", None, None, None, None, None, None, "K2", None, None, None, None, None, None, "K3"],
-            [None, "H3", None, None, None, None, "H2", None, "H2", None, None, None, None, "H3", None],
-            [None, None, "K3", None, None, "H2", None, None, None, "H2", None, None, "K3", None, None],
-        ]
-
-    return {
-        "boardType": board_type,
-        "size": size,
-        "bonusGrid": bonus_grid,
-        "center": [size // 2, size // 2],
-    }
-
-
 @app.post("/api/solve")
 def solve(payload: SolveRequest):
     try:
-        # Eski kayıt/değerlerden "deep" gelirse hızlı moda çevir.
         requested_mode = payload.mode if payload.mode in ("fast", "max") else "fast"
 
         mode_settings = {
-            # Hızlı mod eski "Çok Derin" seviyesine yükseltildi.
             "fast": {
                 "limit": 500,
                 "fast_seconds": 3.0,
@@ -138,9 +91,6 @@ def solve(payload: SolveRequest):
                 "backtrack_extra": 20,
                 "full_sweep": True,
             },
-
-            # Çok Derin mod daha da artırıldı.
-            # Render ücretsiz planda çok uzun isteklerde 502 riski olabilir.
             "max": {
                 "limit": 1000,
                 "fast_seconds": 5.0,
