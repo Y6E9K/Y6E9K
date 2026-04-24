@@ -141,12 +141,12 @@ def solve(payload: SolveRequest):
                 "backtrack_extra": 3,
             },
             "max": {
-            "limit": 300,
-            "fast_seconds": 2.5,
-            "deep_seconds": 18.0,
-            "fast_nodes": 100000,
-            "deep_nodes": 1200000,
-            "backtrack_extra": 12,
+                "limit": 500,
+                "fast_seconds": 3.0,
+                "deep_seconds": 30.0,
+                "fast_nodes": 150000,
+                "deep_nodes": 3000000,
+                "backtrack_extra": 20,
             },
         }
 
