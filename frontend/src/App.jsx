@@ -6,7 +6,7 @@ const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const MAX_TABS = 7;
 const VALID_TR_CELL = /^[ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ?]$/;
 const VALID_TR_RACK = /^[ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ? ]$/;
-const STORAGE_KEY = "kelime_asistani_state_v2";
+const STORAGE_KEY = "kelime_asistani_state_v3";
 
 function normalizeTR(value) {
   if (!value) return "";
@@ -256,7 +256,8 @@ export default function App() {
   const [newBoardType, setNewBoardType] = useState("15x15");
   const [loadingBoard, setLoadingBoard] = useState(false);
   const [activeSuggestionKey, setActiveSuggestionKey] = useState(null);
-  const [solveMode, setSolveMode] = useState("deep");
+  const [solveMode, setSolveMode] = useState("fast");
+  const [solveProgress, setSolveProgress] = useState(0);
 
   const rackRefs = useRef([]);
   const renameRefs = useRef({});
@@ -288,7 +289,7 @@ export default function App() {
           setTabs(restoredTabs);
           setActiveTabId(parsed.activeTabId || restoredTabs[0]?.id || null);
           setNewBoardType(parsed.newBoardType || "15x15");
-          setSolveMode(parsed.solveMode || "deep");
+          setSolveMode(parsed.solveMode === "max" ? "max" : "fast");
           return;
         }
       }
@@ -297,6 +298,7 @@ export default function App() {
     }
 
     handleCreateBoard("15x15");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -597,7 +599,20 @@ export default function App() {
   async function handleSolve() {
     if (!activeTab) return;
 
+    let progressTimer = null;
+
     try {
+      setSolveProgress(0);
+
+      const totalMs = solveMode === "max" ? 45000 : 30000;
+      const startedAt = Date.now();
+
+      progressTimer = setInterval(() => {
+        const elapsed = Date.now() - startedAt;
+        const pct = Math.min(95, Math.round((elapsed / totalMs) * 100));
+        setSolveProgress(pct);
+      }, 300);
+
       updateActiveTab((tab) => ({
         ...tab,
         loading: true,
@@ -646,6 +661,12 @@ export default function App() {
         loading: false,
       }));
       alert("Öneriler alınırken hata oluştu.");
+    } finally {
+      if (progressTimer) clearInterval(progressTimer);
+      setSolveProgress(100);
+      setTimeout(() => {
+        setSolveProgress(0);
+      }, 800);
     }
   }
 
@@ -713,7 +734,6 @@ export default function App() {
             onChange={(e) => setSolveMode(e.target.value)}
           >
             <option value="fast">Hızlı Mod</option>
-            <option value="deep">Derin Mod</option>
             <option value="max">Çok Derin Mod</option>
           </select>
 
@@ -816,13 +836,22 @@ export default function App() {
               </div>
 
               <div className="suggestion-sub" style={{ marginBottom: 10 }}>
-                Aktif mod:{" "}
-                {solveMode === "fast"
-                  ? "Hızlı"
-                  : solveMode === "deep"
-                  ? "Derin"
-                  : "Çok Derin"}
+                Aktif mod: {solveMode === "max" ? "Çok Derin" : "Hızlı"}
               </div>
+
+              {activeTab.loading && (
+                <div className="progress-wrap">
+                  <div className="progress-label">
+                    {solveMode === "max" ? "Çok Derin Mod taranıyor..." : "Hızlı Mod taranıyor..."} %{solveProgress}
+                  </div>
+                  <div className="progress-bar">
+                    <div
+                      className="progress-fill"
+                      style={{ width: `${solveProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
 
               <div className="suggestions-list">
                 {activeTab.suggestions.length ? (
