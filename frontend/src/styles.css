@@ -137,7 +137,7 @@ body {
 
 .layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 390px;
+  grid-template-columns: minmax(420px, 1fr) minmax(320px, 390px);
   gap: 18px;
   align-items: start;
 }
@@ -149,6 +149,11 @@ body {
   border-radius: 22px;
   padding: 16px;
   box-shadow: 0 10px 35px rgba(0, 0, 0, 0.24);
+}
+
+.board-panel {
+  max-width: 920px;
+  width: 100%;
 }
 
 .side-panel {
@@ -179,8 +184,9 @@ body {
 
 .board-grid {
   display: grid;
-  gap: 8px;
-  width: 100%;
+  gap: clamp(3px, 0.45vw, 8px);
+  width: min(100%, 900px);
+  margin: 0 auto;
 }
 
 .board-cell {
@@ -303,6 +309,33 @@ body {
   font-family: inherit;
 }
 
+.progress-wrap {
+  width: 100%;
+  margin: 10px 0 12px;
+}
+
+.progress-label {
+  font-size: 13px;
+  color: #aeb9d7;
+  margin-bottom: 6px;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 10px;
+  background: #101827;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.progress-fill {
+  height: 100%;
+  background: #79cf82;
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+
 .suggestions-list {
   max-height: 460px;
   overflow: auto;
@@ -351,6 +384,10 @@ body {
 @media (max-width: 980px) {
   .layout {
     grid-template-columns: 1fr;
+  }
+
+  .board-panel {
+    max-width: 100%;
   }
 
   .side-panel {
