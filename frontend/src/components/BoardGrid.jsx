@@ -1,36 +1,17 @@
 import React from "react";
 
-function bonusLabel(bonus) {
-  switch (bonus) {
-    case "K3":
-      return "K3";
-    case "K2":
-      return "K2";
-    case "H3":
-      return "H3";
-    case "H2":
-      return "H2";
-    case "START":
-      return "★";
-    default:
-      return "";
-  }
+function bonusClass(bonus) {
+  if (bonus === "K3") return "bonus-tw";
+  if (bonus === "K2") return "bonus-dw";
+  if (bonus === "H3") return "bonus-tl";
+  if (bonus === "H2") return "bonus-dl";
+  if (bonus === "START") return "bonus-star";
+  return "";
 }
 
-function cellClassName(cell, isPreview, isSelected) {
-  let cls = "board-cell";
-
-  if (cell.letter) cls += " filled";
-  else if (isPreview) cls += " preview";
-  else if (cell.bonus === "K3") cls += " bonus-tw";
-  else if (cell.bonus === "K2") cls += " bonus-dw";
-  else if (cell.bonus === "H3") cls += " bonus-tl";
-  else if (cell.bonus === "H2") cls += " bonus-dl";
-  else if (cell.bonus === "START") cls += " bonus-star";
-  else cls += " empty";
-
-  if (isSelected) cls += " selected";
-  return cls;
+function bonusText(bonus) {
+  if (bonus === "START") return "★";
+  return bonus || "";
 }
 
 export default function BoardGrid({
@@ -43,76 +24,60 @@ export default function BoardGrid({
   onCellChange,
   onCellBackspace,
 }) {
-  const previewMap = new Map(
-    (previewCells || []).map((p) => [`${p.row}-${p.col}`, p])
-  );
+  const size = boardType === "9x9" ? 9 : 15;
+  const previewMap = new Map(previewCells.map((p) => [`${p.row}-${p.col}`, p.letter]));
 
   return (
-    <div
-      className="board-grid"
-      style={{
-        gridTemplateColumns: `repeat(${boardType === "9x9" ? 9 : 15}, minmax(0, 1fr))`,
-      }}
-    >
-      {board.map((row, rowIndex) =>
-        row.map((cell, colIndex) => {
-          const key = `${rowIndex}-${colIndex}`;
-          const previewItem = previewMap.get(key);
-          const isPreview = !!previewItem && !cell.letter;
-          const isSelected =
-            selectedCell?.row === rowIndex && selectedCell?.col === colIndex;
+    <div className={`board-grid board-${size}`} style={{ gridTemplateColumns: `repeat(${size}, minmax(0, 1fr))` }}>
+      {board.map((row, r) =>
+        row.map((cell, c) => {
+          const key = `${r}-${c}`;
+          const isSelected = selectedCell?.row === r && selectedCell?.col === c;
+          const previewLetter = previewMap.get(key);
+          const isPreview = Boolean(previewLetter);
+          const isFilled = Boolean(cell.letter);
 
           return (
             <div
               key={key}
-              className={cellClassName(cell, isPreview, isSelected)}
-              data-bonus={cell.bonus || ""}
+              className={[
+                "board-cell",
+                isFilled ? "filled" : "empty",
+                cell.bonus && !isFilled && !isPreview ? bonusClass(cell.bonus) : "",
+                isSelected ? "selected" : "",
+                isPreview ? "preview" : "",
+              ].join(" ")}
+              onClick={() => onSelectCell(r, c)}
             >
-              {!cell.letter && !isPreview && (
-                <span className="board-cell-bonus">
-                  {bonusLabel(cell.bonus)}
-                </span>
-              )}
-
-              {isPreview && !cell.letter && (
-                <span className="board-cell-preview-letter">
-                  {previewItem.letter}
-                </span>
-              )}
-
+              {!isFilled && !isPreview && cell.bonus && <span className="board-cell-bonus">{bonusText(cell.bonus)}</span>}
+              {isPreview && !isFilled && <span className="board-cell-preview-letter">{previewLetter}</span>}
               <input
                 ref={(el) => {
-                  if (cellRefs?.current) {
-                    cellRefs.current[key] = el;
-                  }
+                  if (cellRefs?.current) cellRefs.current[key] = el;
                 }}
-                data-cell={key}
                 className="board-cell-input"
                 value={cell.letter || ""}
-                maxLength={1}
                 inputMode="text"
                 autoComplete="off"
                 autoCorrect="off"
                 autoCapitalize="characters"
                 spellCheck={false}
-                onPaste={(e) => e.preventDefault()}
-                onFocus={() => onSelectCell?.(rowIndex, colIndex)}
+                maxLength={1}
+                onFocus={() => onSelectCell(r, c)}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onSelectCell?.(rowIndex, colIndex);
+                  onSelectCell(r, c);
                 }}
                 onChange={(e) => {
-                  const raw = e.target.value || "";
-                  if (!raw) return;
-                  onCellChange?.(rowIndex, colIndex, raw);
+                  const value = e.target.value;
+                  if (value) onCellChange(r, c, value);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Backspace") {
                     e.preventDefault();
-                    onCellBackspace?.(rowIndex, colIndex);
+                    onCellBackspace(r, c);
                   }
                 }}
-                aria-label={`Hücre ${rowIndex + 1}-${colIndex + 1}`}
               />
             </div>
           );
