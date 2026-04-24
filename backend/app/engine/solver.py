@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import copy
+import heapq
+import json
 import time
-from collections import Counter, defaultdict
-from dataclasses import dataclass
+from collections import Counter, OrderedDict, defaultdict
+from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 
@@ -26,23 +29,24 @@ LETTER_SCORES = {
     "Y": 3, "Z": 4, "?": 0,
 }
 
+LETTERS = tuple(ch for ch in LETTER_SCORES.keys() if ch != "?")
+LETTER_INDEX = {ch: i for i, ch in enumerate(LETTERS)}
+INDEX_LETTER = {i: ch for ch, i in LETTER_INDEX.items()}
+ALL_LETTER_SET = frozenset(LETTERS)
 
-@dataclass(frozen=True)
-class WordEntry:
-    word: str
-    uniq: frozenset
-    counter: Counter
-    score: int
-    length: int
+SOLVE_CACHE_MAX = 64
+SOLVE_CACHE: "OrderedDict[str, dict]" = OrderedDict()
+CACHE_HITS = 0
+CACHE_MISSES = 0
 
 
-@dataclass
-class DictionaryIndex:
-    word_set: Set[str]
-    words: List[str]
-    by_length: Dict[int, List[WordEntry]]
-    by_pos_letter: Dict[Tuple[int, int, str], List[WordEntry]]
-    sample_words: List[str]
+def cache_stats():
+    return {
+        "size": len(SOLVE_CACHE),
+        "maxSize": SOLVE_CACHE_MAX,
+        "hits": CACHE_HITS,
+        "misses": CACHE_MISSES,
+    }
 
 
 def normalize_letter(ch: Any) -> str:
@@ -62,6 +66,34 @@ def is_valid_word(word: str) -> bool:
     return len(word) >= 2 and all(ch in LETTER_SCORES and ch != "?" for ch in word)
 
 
+def count_array_from_word(word: str) -> Tuple[int, ...]:
+    arr = [0] * len(LETTERS)
+    for ch in word:
+        idx = LETTER_INDEX.get(ch)
+        if idx is not None:
+            arr[idx] += 1
+    return tuple(arr)
+
+
+@dataclass(frozen=True)
+class WordEntry:
+    word: str
+    uniq: frozenset
+    count_array: Tuple[int, ...]
+    score: int
+    length: int
+
+
+@dataclass
+class DictionaryIndex:
+    word_set: Set[str]
+    words: List[str]
+    by_length: Dict[int, List[WordEntry]]
+    by_pos_letter: Dict[Tuple[int, int, str], List[WordEntry]]
+    pattern_cache: Dict[Tuple[int, Tuple[Tuple[int, str], ...]], List[WordEntry]] = field(default_factory=dict)
+    sample_words: List[str] = field(default_factory=list)
+
+
 def build_dictionary_index(words: Iterable[str]) -> DictionaryIndex:
     word_set: Set[str] = set()
     clean_words: List[str] = []
@@ -75,20 +107,25 @@ def build_dictionary_index(words: Iterable[str]) -> DictionaryIndex:
 
         word_set.add(word)
         clean_words.append(word)
+
         entry = WordEntry(
             word=word,
             uniq=frozenset(word),
-            counter=Counter(word),
+            count_array=count_array_from_word(word),
             score=sum(LETTER_SCORES.get(ch, 0) for ch in word),
             length=len(word),
         )
+
         by_length[len(word)].append(entry)
+
         for pos, ch in enumerate(word):
             by_pos_letter[(len(word), pos, ch)].append(entry)
 
     clean_words.sort()
+
     for length in by_length:
         by_length[length].sort(key=lambda e: (-e.score, -e.length, e.word))
+
     for key in by_pos_letter:
         by_pos_letter[key].sort(key=lambda e: (-e.score, -e.length, e.word))
 
@@ -105,106 +142,204 @@ def board_size(board: List[List[Any]]) -> int:
     return len(board)
 
 
-def in_bounds(board: List[List[Any]], r: int, c: int) -> bool:
-    n = board_size(board)
-    return 0 <= r < n and 0 <= c < n
+def in_bounds(ctx, r: int, c: int) -> bool:
+    return 0 <= r < ctx["n"] and 0 <= c < ctx["n"]
 
 
-def get_cell(board: List[List[Any]], r: int, c: int):
-    return board[r][c]
-
-
-def get_letter(board: List[List[Any]], r: int, c: int) -> Optional[str]:
-    if not in_bounds(board, r, c):
-        return None
-
-    cell = get_cell(board, r, c)
-
+def get_board_cell_letter(cell: Any) -> Optional[str]:
     if isinstance(cell, dict):
         ch = normalize_letter(cell.get("letter", ""))
-        return ch or None
-
-    ch = normalize_letter(cell)
+    else:
+        ch = normalize_letter(cell)
     return ch or None
 
 
-def get_bonus(board: List[List[Any]], r: int, c: int) -> Optional[str]:
-    if not in_bounds(board, r, c):
-        return None
-
-    cell = get_cell(board, r, c)
+def get_board_cell_bonus(cell: Any) -> Optional[str]:
     if isinstance(cell, dict):
         return cell.get("bonus")
     return None
 
 
-def board_is_empty(board: List[List[Any]]) -> bool:
+def build_board_context(board: List[List[Any]], word_set: Set[str]):
     n = board_size(board)
-    return all(get_letter(board, r, c) is None for r in range(n) for c in range(n))
+    letters = [[None for _ in range(n)] for _ in range(n)]
+    bonuses = [[None for _ in range(n)] for _ in range(n)]
+    board_set = set()
+    tiles = []
 
-
-def board_has_letters(board: List[List[Any]]) -> bool:
-    return not board_is_empty(board)
-
-
-def board_letters_set(board: List[List[Any]]) -> Set[str]:
-    n = board_size(board)
-    out = set()
     for r in range(n):
         for c in range(n):
-            ch = get_letter(board, r, c)
+            cell = board[r][c]
+            ch = get_board_cell_letter(cell)
+            bonus = get_board_cell_bonus(cell)
+            letters[r][c] = ch
+            bonuses[r][c] = bonus
+
             if ch:
-                out.add(ch)
-    return out
+                board_set.add(ch)
+                tiles.append((r, c, ch))
+
+    empty = len(tiles) == 0
+    center = (n // 2, n // 2)
+
+    ctx = {
+        "n": n,
+        "letters": letters,
+        "bonuses": bonuses,
+        "board_set": board_set,
+        "tiles": tiles,
+        "empty": empty,
+        "center": center,
+        "word_set": word_set,
+    }
+
+    ctx["anchors"] = compute_anchors(ctx)
+    ctx["neighbor_counts"] = compute_neighbor_counts(ctx)
+    ctx["cross_checks"] = compute_cross_checks(ctx, word_set)
+    return ctx
 
 
-def rack_counter(rack: List[str]) -> Counter:
-    cnt = Counter()
-    for raw in rack:
-        ch = normalize_letter(raw)
-        if ch:
-            cnt[ch] += 1
-    return cnt
+def ctx_letter(ctx, r: int, c: int) -> Optional[str]:
+    if not in_bounds(ctx, r, c):
+        return None
+    return ctx["letters"][r][c]
 
 
-def can_make_letters(needed: List[str], rack_ctr: Counter):
-    bag = rack_ctr.copy()
-    joker_used = []
-
-    for ch in needed:
-        if bag[ch] > 0:
-            bag[ch] -= 1
-        elif bag["?"] > 0:
-            bag["?"] -= 1
-            joker_used.append(ch)
-        else:
-            return None
-
-    return joker_used
+def ctx_bonus(ctx, r: int, c: int) -> Optional[str]:
+    if not in_bounds(ctx, r, c):
+        return None
+    return ctx["bonuses"][r][c]
 
 
-def get_anchors(board: List[List[Any]]) -> Set[Tuple[int, int]]:
-    n = board_size(board)
+def compute_anchors(ctx) -> Set[Tuple[int, int]]:
+    n = ctx["n"]
 
-    if board_is_empty(board):
-        center = n // 2
-        return {(center, center)}
+    if ctx["empty"]:
+        return {ctx["center"]}
 
     anchors = set()
-    for r in range(n):
-        for c in range(n):
-            if get_letter(board, r, c) is None:
-                for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                    rr, cc = r + dr, c + dc
-                    if in_bounds(board, rr, cc) and get_letter(board, rr, cc):
-                        anchors.add((r, c))
-                        break
+
+    for r, c, _ in ctx["tiles"]:
+        for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            rr, cc = r + dr, c + dc
+            if in_bounds(ctx, rr, cc) and ctx_letter(ctx, rr, cc) is None:
+                anchors.add((rr, cc))
 
     return anchors
 
 
-def candidate_start_positions(board: List[List[Any]], word_len: int, anchor_r: int, anchor_c: int, direction: str):
-    n = board_size(board)
+def compute_neighbor_counts(ctx):
+    n = ctx["n"]
+    out = [[0 for _ in range(n)] for _ in range(n)]
+
+    for r in range(n):
+        for c in range(n):
+            cnt = 0
+            for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                rr, cc = r + dr, c + dc
+                if in_bounds(ctx, rr, cc) and ctx_letter(ctx, rr, cc):
+                    cnt += 1
+            out[r][c] = cnt
+
+    return out
+
+
+def neighbor_count(ctx, r: int, c: int) -> int:
+    return ctx["neighbor_counts"][r][c]
+
+
+def step(direction: str) -> Tuple[int, int]:
+    return (0, 1) if direction == DIR_RIGHT else (1, 0)
+
+
+def cell_at(direction: str, r: int, c: int, i: int) -> Tuple[int, int]:
+    dr, dc = step(direction)
+    return r + dr * i, c + dc * i
+
+
+def line_in_bounds(ctx, r: int, c: int, direction: str, length: int) -> bool:
+    er, ec = cell_at(direction, r, c, length - 1)
+    return in_bounds(ctx, r, c) and in_bounds(ctx, er, ec)
+
+
+def edge_ok(ctx, r: int, c: int, direction: str, length: int) -> bool:
+    dr, dc = step(direction)
+    br, bc = r - dr, c - dc
+    ar, ac = r + dr * length, c + dc * length
+
+    if in_bounds(ctx, br, bc) and ctx_letter(ctx, br, bc):
+        return False
+    if in_bounds(ctx, ar, ac) and ctx_letter(ctx, ar, ac):
+        return False
+
+    return True
+
+
+def passes_center(ctx, r: int, c: int, direction: str, length: int) -> bool:
+    return any(cell_at(direction, r, c, i) == ctx["center"] for i in range(length))
+
+
+def perpendicular_fragments(ctx, r: int, c: int, direction: str) -> Tuple[str, str]:
+    if direction == DIR_RIGHT:
+        d1r, d1c, d2r, d2c = -1, 0, 1, 0
+    else:
+        d1r, d1c, d2r, d2c = 0, -1, 0, 1
+
+    prefix = []
+    rr, cc = r + d1r, c + d1c
+    while in_bounds(ctx, rr, cc):
+        ch = ctx_letter(ctx, rr, cc)
+        if not ch:
+            break
+        prefix.append(ch)
+        rr += d1r
+        cc += d1c
+    prefix.reverse()
+
+    suffix = []
+    rr, cc = r + d2r, c + d2c
+    while in_bounds(ctx, rr, cc):
+        ch = ctx_letter(ctx, rr, cc)
+        if not ch:
+            break
+        suffix.append(ch)
+        rr += d2r
+        cc += d2c
+
+    return "".join(prefix), "".join(suffix)
+
+
+def compute_cross_checks(ctx, word_set: Set[str]):
+    """Her boş hücre için ana yön bazında gelebilecek harfleri önceden hesaplar.
+    Ana yön YATAY ise çapraz DIKEY kontrol edilir; ana yön DIKEY ise çapraz YATAY kontrol edilir.
+    """
+    n = ctx["n"]
+    checks = {}
+
+    for direction in (DIR_RIGHT, DIR_DOWN):
+        for r in range(n):
+            for c in range(n):
+                if ctx_letter(ctx, r, c):
+                    continue
+
+                prefix, suffix = perpendicular_fragments(ctx, r, c, direction)
+
+                if not prefix and not suffix:
+                    allowed = ALL_LETTER_SET
+                else:
+                    allowed_set = set()
+                    for ch in LETTERS:
+                        if f"{prefix}{ch}{suffix}" in word_set:
+                            allowed_set.add(ch)
+                    allowed = frozenset(allowed_set)
+
+                checks[(direction, r, c)] = allowed
+
+    return checks
+
+
+def candidate_start_positions(ctx, word_len: int, anchor_r: int, anchor_c: int, direction: str):
+    n = ctx["n"]
 
     if direction == DIR_RIGHT:
         for off in range(word_len):
@@ -220,52 +355,41 @@ def candidate_start_positions(board: List[List[Any]], word_len: int, anchor_r: i
                 yield row, col
 
 
-def segment_has_connection_candidate(board: List[List[Any]], row: int, col: int, length: int, direction: str) -> bool:
-    """Sadece aday başlangıç genişletmek için hızlı temas kontrolü.
-    Nihai doğrulama yine fits(...) ve all_words_valid(...) içinde yapılır.
-    """
+def segment_has_connection_candidate(ctx, row: int, col: int, length: int, direction: str) -> bool:
     has_empty = False
     has_fixed = False
     adjacent = False
 
     for i in range(length):
-        rr = row + (i if direction == DIR_DOWN else 0)
-        cc = col + (i if direction == DIR_RIGHT else 0)
-        ch = get_letter(board, rr, cc)
+        rr, cc = cell_at(direction, row, col, i)
+        ch = ctx_letter(ctx, rr, cc)
 
         if ch:
             has_fixed = True
         else:
             has_empty = True
-            for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                r2, c2 = rr + dr, cc + dc
-                if in_bounds(board, r2, c2) and get_letter(board, r2, c2):
-                    adjacent = True
+            if neighbor_count(ctx, rr, cc) > 0:
+                adjacent = True
 
-    return has_empty and (has_fixed or adjacent or board_is_empty(board))
+    return has_empty and (has_fixed or adjacent or ctx["empty"])
 
 
-def all_legalish_start_positions(board: List[List[Any]], length: int, direction: str):
-    """V8.2 mantığını bozmadan daha fazla kombinasyon denemek için
-    tüm satır/sütun slotlarını aday listesine ekler.
-    Nihai kural kontrolü burada değil, fits/all_words_valid içinde yapılır.
-    """
-    n = board_size(board)
+def all_legalish_start_positions(ctx, length: int, direction: str):
+    n = ctx["n"]
 
     if direction == DIR_RIGHT:
         for row in range(n):
             for col in range(0, n - length + 1):
-                if segment_has_connection_candidate(board, row, col, length, direction):
+                if segment_has_connection_candidate(ctx, row, col, length, direction):
                     yield row, col
     else:
         for row in range(0, n - length + 1):
             for col in range(n):
-                if segment_has_connection_candidate(board, row, col, length, direction):
+                if segment_has_connection_candidate(ctx, row, col, length, direction):
                     yield row, col
 
 
-def ranked_starts(board: List[List[Any]], starts: Set[Tuple[int, int]], length: int, direction: str):
-    """Daha etkili arama için çok temaslı ve bonuslu slotları önce dener."""
+def ranked_starts(ctx, starts: Set[Tuple[int, int]], length: int, direction: str):
     def rank(pos):
         row, col = pos
         fixed = 0
@@ -274,53 +398,121 @@ def ranked_starts(board: List[List[Any]], starts: Set[Tuple[int, int]], length: 
         empty_count = 0
 
         for i in range(length):
-            rr = row + (i if direction == DIR_DOWN else 0)
-            cc = col + (i if direction == DIR_RIGHT else 0)
-            ch = get_letter(board, rr, cc)
+            rr, cc = cell_at(direction, row, col, i)
+            ch = ctx_letter(ctx, rr, cc)
 
             if ch:
                 fixed += 1
             else:
                 empty_count += 1
-                bonus = get_bonus(board, rr, cc)
+                bonus = ctx_bonus(ctx, rr, cc)
                 if bonus in ("K3", "H3"):
                     bonus_score += 5
                 elif bonus in ("K2", "H2", "START"):
                     bonus_score += 3
-
-                for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                    r2, c2 = rr + dr, cc + dc
-                    if in_bounds(board, r2, c2) and get_letter(board, r2, c2):
-                        adjacent += 1
+                adjacent += neighbor_count(ctx, rr, cc)
 
         return (-fixed, -adjacent, -bonus_score, empty_count, row, col)
 
     return sorted(starts, key=rank)
 
 
-def build_pattern(board: List[List[Any]], row: int, col: int, length: int, direction: str):
-    letters = []
+def build_pattern(ctx, row: int, col: int, length: int, direction: str):
     fixed_positions = {}
     empties = 0
+    allowed_by_pos = {}
+    pattern_letters = []
 
     for i in range(length):
-        rr = row + (i if direction == DIR_DOWN else 0)
-        cc = col + (i if direction == DIR_RIGHT else 0)
-        ch = get_letter(board, rr, cc)
+        rr, cc = cell_at(direction, row, col, i)
+        ch = ctx_letter(ctx, rr, cc)
 
-        letters.append(ch if ch else ".")
         if ch:
             fixed_positions[i] = ch
+            pattern_letters.append(ch)
         else:
             empties += 1
+            allowed = ctx["cross_checks"].get((direction, rr, cc), ALL_LETTER_SET)
+            if not allowed:
+                return None, None, None, None
+            allowed_by_pos[i] = allowed
+            pattern_letters.append(".")
 
-    return "".join(letters), fixed_positions, empties
+    return "".join(pattern_letters), fixed_positions, empties, allowed_by_pos
 
 
-def word_matches_pattern(word: str, fixed_positions: Dict[int, str]) -> bool:
-    for i, ch in fixed_positions.items():
-        if word[i] != ch:
+def word_matches_fixed(word: str, fixed_positions: Dict[int, str]) -> bool:
+    for pos, ch in fixed_positions.items():
+        if word[pos] != ch:
             return False
+    return True
+
+
+def word_matches_cross_allowed(word: str, allowed_by_pos: Dict[int, frozenset]) -> bool:
+    for pos, allowed in allowed_by_pos.items():
+        if word[pos] not in allowed:
+            return False
+    return True
+
+
+def rack_array(rack: List[str]) -> Tuple[List[int], int, List[str]]:
+    arr = [0] * len(LETTERS)
+    jokers = 0
+    cleaned = []
+
+    for raw in rack:
+        ch = normalize_letter(raw)
+        if not ch:
+            continue
+        cleaned.append(ch)
+
+        if ch == "?":
+            jokers += 1
+        else:
+            idx = LETTER_INDEX.get(ch)
+            if idx is not None:
+                arr[idx] += 1
+
+    return arr, jokers, cleaned
+
+
+def can_make_needed_array(needed: List[str], rack_arr: List[int], joker_count: int):
+    left = rack_arr[:]
+    jokers = joker_count
+    joker_used = []
+
+    for ch in needed:
+        idx = LETTER_INDEX.get(ch)
+        if idx is not None and left[idx] > 0:
+            left[idx] -= 1
+        elif jokers > 0:
+            jokers -= 1
+            joker_used.append(ch)
+        else:
+            return None
+
+    return joker_used
+
+
+def word_count_possible_for_needed(entry: WordEntry, fixed_positions: Dict[int, str], rack_arr: List[int], joker_count: int) -> bool:
+    """Counter yerine hızlı harf dizisiyle kaba ön filtre.
+    Sabit tahta harflerini kelime ihtiyacından düşerek sadece rack'ten gerekli kısmı kontrol eder.
+    """
+    need = list(entry.count_array)
+
+    for _, ch in fixed_positions.items():
+        idx = LETTER_INDEX.get(ch)
+        if idx is not None and need[idx] > 0:
+            need[idx] -= 1
+
+    missing = 0
+    for i, cnt in enumerate(need):
+        diff = cnt - rack_arr[i]
+        if diff > 0:
+            missing += diff
+            if missing > joker_count:
+                return False
+
     return True
 
 
@@ -328,39 +520,15 @@ def estimate_needed_letters(word: str, fixed_positions: Dict[int, str]) -> List[
     return [ch for i, ch in enumerate(word) if i not in fixed_positions]
 
 
-def prefilter_entries_pattern(entries: List[WordEntry], fixed_positions: Dict[int, str], rack: List[str], board: List[List[Any]]):
-    rack_ctr = rack_counter(rack)
-    rack_set = {k for k, v in rack_ctr.items() if v > 0 and k != "?"}
-    board_set = board_letters_set(board)
-    out = []
-
-    for entry in entries:
-        word = entry.word
-
-        if not word_matches_pattern(word, fixed_positions):
-            continue
-
-        if board_has_letters(board) and not (entry.uniq & (rack_set | board_set)):
-            continue
-
-        out.append(entry)
-
-    return out
-
-
-def prefilter_entries_pattern_fast(
+def get_pattern_candidates(
     index: DictionaryIndex,
     length: int,
     fixed_positions: Dict[int, str],
-    rack: List[str],
-    board: List[List[Any]],
 ):
-    """Aynı v8.2 pattern mantığı, ama sabit harf varsa tüm uzunluk listesini taramak yerine
-    en dar pozisyon-harf indeksinden başlar. Çok dolu tahtada ciddi hız kazandırır.
-    """
-    rack_ctr = rack_counter(rack)
-    rack_set = {k for k, v in rack_ctr.items() if v > 0 and k != "?"}
-    board_set = board_letters_set(board)
+    key = (length, tuple(sorted(fixed_positions.items())))
+    cached = index.pattern_cache.get(key)
+    if cached is not None:
+        return cached
 
     if not fixed_positions:
         candidates = index.by_length.get(length, [])
@@ -368,31 +536,24 @@ def prefilter_entries_pattern_fast(
         pools = []
         for pos, ch in fixed_positions.items():
             pools.append(index.by_pos_letter.get((length, pos, ch), []))
+
         if not pools:
-            return []
-        candidates = min(pools, key=len)
+            candidates = []
+        else:
+            base_pool = min(pools, key=len)
+            candidates = [entry for entry in base_pool if word_matches_fixed(entry.word, fixed_positions)]
 
-    out = []
-    for entry in candidates:
-        word = entry.word
+    # Pattern cache fazla büyümesin.
+    if len(index.pattern_cache) < 12000:
+        index.pattern_cache[key] = candidates
 
-        if fixed_positions and not word_matches_pattern(word, fixed_positions):
-            continue
-
-        if board_has_letters(board) and not (entry.uniq & (rack_set | board_set)):
-            continue
-
-        out.append(entry)
-
-    return out
+    return candidates
 
 
-def fits(board: List[List[Any]], word: str, row: int, col: int, direction: str):
-    n = board_size(board)
+def fits(ctx, word: str, row: int, col: int, direction: str):
+    length = len(word)
 
-    if direction == DIR_RIGHT and col + len(word) > n:
-        return None
-    if direction == DIR_DOWN and row + len(word) > n:
+    if not line_in_bounds(ctx, row, col, direction, length):
         return None
 
     placed = []
@@ -402,9 +563,8 @@ def fits(board: List[List[Any]], word: str, row: int, col: int, direction: str):
     touched_existing = set()
 
     for i, ch in enumerate(word):
-        rr = row + (i if direction == DIR_DOWN else 0)
-        cc = col + (i if direction == DIR_RIGHT else 0)
-        existing = get_letter(board, rr, cc)
+        rr, cc = cell_at(direction, row, col, i)
+        existing = ctx_letter(ctx, rr, cc)
 
         if existing:
             if existing != ch:
@@ -412,39 +572,22 @@ def fits(board: List[List[Any]], word: str, row: int, col: int, direction: str):
             touch_count += 1
             touched_existing.add((rr, cc))
         else:
+            allowed = ctx["cross_checks"].get((direction, rr, cc), ALL_LETTER_SET)
+            if ch not in allowed:
+                return None
+
             placed.append((rr, cc, ch))
             needed.append(ch)
-
-            for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                r2, c2 = rr + dr, cc + dc
-                if in_bounds(board, r2, c2) and get_letter(board, r2, c2):
-                    adjacent_contacts += 1
+            adjacent_contacts += neighbor_count(ctx, rr, cc)
 
     if not placed:
         return None
 
-    if direction == DIR_RIGHT:
-        if col > 0 and get_letter(board, row, col - 1):
-            return None
-        endc = col + len(word) - 1
-        if endc < n - 1 and get_letter(board, row, endc + 1):
-            return None
-    else:
-        if row > 0 and get_letter(board, row - 1, col):
-            return None
-        endr = row + len(word) - 1
-        if endr < n - 1 and get_letter(board, endr + 1, col):
-            return None
+    if not edge_ok(ctx, row, col, direction, length):
+        return None
 
-    if board_is_empty(board):
-        center = n // 2
-        if not any(
-            (
-                row + (i if direction == DIR_DOWN else 0),
-                col + (i if direction == DIR_RIGHT else 0),
-            ) == (center, center)
-            for i in range(len(word))
-        ):
+    if ctx["empty"]:
+        if not passes_center(ctx, row, col, direction, length):
             return None
     elif touch_count == 0 and adjacent_contacts == 0:
         return None
@@ -453,67 +596,46 @@ def fits(board: List[List[Any]], word: str, row: int, col: int, direction: str):
     return placed, needed, interaction_score, len(touched_existing)
 
 
-def cross_word_for_new_tile(board: List[List[Any]], r: int, c: int, ch: str, direction: str):
-    n = board_size(board)
+def cross_word_for_new_tile(ctx, r: int, c: int, ch: str, direction: str):
+    n = ctx["n"]
 
     if direction == DIR_RIGHT:
         start = r
-        while start > 0 and get_letter(board, start - 1, c):
+        while start > 0 and ctx_letter(ctx, start - 1, c):
             start -= 1
 
         end = r
-        while end < n - 1 and get_letter(board, end + 1, c):
+        while end < n - 1 and ctx_letter(ctx, end + 1, c):
             end += 1
 
         letters = []
         coords = []
         for rr in range(start, end + 1):
-            letters.append(ch if rr == r else get_letter(board, rr, c))
+            letters.append(ch if rr == r else ctx_letter(ctx, rr, c))
             coords.append((rr, c))
 
         return "".join(letters), coords
 
     start = c
-    while start > 0 and get_letter(board, r, start - 1):
+    while start > 0 and ctx_letter(ctx, r, start - 1):
         start -= 1
 
     end = c
-    while end < n - 1 and get_letter(board, r, end + 1):
+    while end < n - 1 and ctx_letter(ctx, r, end + 1):
         end += 1
 
     letters = []
     coords = []
     for cc in range(start, end + 1):
-        letters.append(ch if cc == c else get_letter(board, r, cc))
+        letters.append(ch if cc == c else ctx_letter(ctx, r, cc))
         coords.append((r, cc))
 
     return "".join(letters), coords
 
 
-def all_words_valid(board: List[List[Any]], word: str, direction: str, placed: List[Tuple[int, int, str]], word_set: Set[str]):
-    if word not in word_set:
-        return False, []
+def all_words_valid_cached(ctx, word: str, direction: str, placed: List[Tuple[int, int, str]], cross_cache):
+    word_set = ctx["word_set"]
 
-    created = [word]
-
-    for r, c, ch in placed:
-        cw, _ = cross_word_for_new_tile(board, r, c, ch, direction)
-        if len(cw) > 1:
-            if cw not in word_set:
-                return False, []
-            created.append(cw)
-
-    return True, created
-
-
-def all_words_valid_cached(
-    board: List[List[Any]],
-    word: str,
-    direction: str,
-    placed: List[Tuple[int, int, str]],
-    word_set: Set[str],
-    cross_cache: Dict[Tuple[int, int, str, str], Tuple[bool, Tuple[str, ...]]],
-):
     if word not in word_set:
         return False, []
 
@@ -522,8 +644,9 @@ def all_words_valid_cached(
     for r, c, ch in placed:
         key = (r, c, direction, ch)
         cached = cross_cache.get(key)
+
         if cached is None:
-            cw, _ = cross_word_for_new_tile(board, r, c, ch, direction)
+            cw, _ = cross_word_for_new_tile(ctx, r, c, ch, direction)
             if len(cw) > 1 and cw not in word_set:
                 cached = (False, tuple())
             elif len(cw) > 1:
@@ -535,6 +658,7 @@ def all_words_valid_cached(
         ok, words = cached
         if not ok:
             return False, []
+
         created.extend(words)
 
     return True, created
@@ -572,12 +696,7 @@ def apply_bonus(base_value: int, bonus: Optional[str]):
     return letter_value, word_mult
 
 
-def score_word_with_coords(
-    board: List[List[Any]],
-    coords: List[Tuple[int, int]],
-    placed_map: Dict[Tuple[int, int], str],
-    joker_cells: Set[Tuple[int, int]],
-):
+def score_word_with_coords(ctx, coords, placed_map, joker_cells):
     total = 0
     word_mult = 1
     bonus_notes = []
@@ -586,7 +705,7 @@ def score_word_with_coords(
         if (r, c) in placed_map:
             ch = placed_map[(r, c)]
             base = letter_score(ch, (r, c) in joker_cells)
-            bonus = get_bonus(board, r, c)
+            bonus = ctx_bonus(ctx, r, c)
             letter_val, wm = apply_bonus(base, bonus)
             total += letter_val
             word_mult *= wm
@@ -595,42 +714,31 @@ def score_word_with_coords(
                 note_bonus = "K2" if bonus == "START" else bonus
                 bonus_notes.append(f"{ch}@{r + 1},{c + 1}:{note_bonus}")
         else:
-            ch = get_letter(board, r, c)
+            ch = ctx_letter(ctx, r, c)
             total += LETTER_SCORES.get(ch, 0)
 
     return total * word_mult, bonus_notes
 
 
-def score_move(
-    board: List[List[Any]],
-    word: str,
-    row: int,
-    col: int,
-    direction: str,
-    placed: List[Tuple[int, int, str]],
-    joker_used: List[str],
-):
+def score_move(ctx, word, row, col, direction, placed, joker_used):
     placed_map = {(r, c): ch for r, c, ch in placed}
     joker_cells = build_joker_cells(placed, joker_used)
 
     main_coords = [
-        (
-            row + (i if direction == DIR_DOWN else 0),
-            col + (i if direction == DIR_RIGHT else 0),
-        )
+        cell_at(direction, row, col, i)
         for i in range(len(word))
     ]
 
-    main_score, notes = score_word_with_coords(board, main_coords, placed_map, joker_cells)
+    main_score, notes = score_word_with_coords(ctx, main_coords, placed_map, joker_cells)
 
     cross_total = 0
     cross_details = []
     cross_count = 0
 
     for r, c, ch in placed:
-        cw, coords = cross_word_for_new_tile(board, r, c, ch, direction)
+        cw, coords = cross_word_for_new_tile(ctx, r, c, ch, direction)
         if len(cw) > 1:
-            cw_score, cw_notes = score_word_with_coords(board, coords, placed_map, joker_cells)
+            cw_score, cw_notes = score_word_with_coords(ctx, coords, placed_map, joker_cells)
             cross_total += cw_score
             cross_count += 1
             cross_details.append(f"{cw}={cw_score}")
@@ -658,16 +766,55 @@ def score_move(
                 uniq_notes.append(note)
         detail += " | bonus=" + " ; ".join(uniq_notes)
 
-    return final, detail, cross_count
+    return final, detail, cross_count, joker_cells
+
+
+class TopCollector:
+    def __init__(self, limit: int):
+        self.limit = limit
+        self.heap = []
+        self.seen = set()
+        self.counter = 0
+
+    def add(self, move: Dict[str, Any]):
+        key = (move["word"], move["row"], move["col"], move["direction"], move["score"])
+        if key in self.seen:
+            return
+
+        self.seen.add(key)
+
+        rank = (
+            int(move["score"]),
+            int(move["effective_score"]),
+            int(move["cross_count"]),
+            int(move["interaction_score"]),
+            len(move["word"]),
+            -int(move["row"]) - int(move["col"]),
+        )
+
+        self.counter += 1
+        item = (rank, self.counter, move)
+
+        if len(self.heap) < self.limit:
+            heapq.heappush(self.heap, item)
+        elif rank > self.heap[0][0]:
+            heapq.heapreplace(self.heap, item)
+
+    def results(self):
+        out = [item[2] for item in self.heap]
+        out.sort(key=lambda x: (-x["score"], -x["effective_score"], x["word"], x["row"], x["col"]))
+        return out
 
 
 def normalize_suggestion(move: Dict[str, Any]) -> Dict[str, Any]:
+    joker_cells = move.get("joker_cells") or set()
+
     placed = [
         {
             "row": r,
             "col": c,
             "letter": ch,
-            "is_joker": bool(move.get("joker_cells") and (r, c) in move.get("joker_cells")),
+            "is_joker": (r, c) in joker_cells,
         }
         for r, c, ch in move["placed"]
     ]
@@ -690,38 +837,81 @@ def normalize_suggestion(move: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def find_best_moves(
-    board: List[List[Any]],
-    rack: List[str],
-    index: DictionaryIndex,
-    limit: int = 300,
-    seconds: float = 12.0,
-    max_checks: int = 1_200_000,
-):
+def make_cache_key(board, rack, limit, seconds, max_checks):
+    compact_board = []
+    for row in board:
+        compact_row = []
+        for cell in row:
+            if isinstance(cell, dict):
+                compact_row.append((normalize_letter(cell.get("letter", "")), cell.get("bonus")))
+            else:
+                compact_row.append((normalize_letter(cell), None))
+        compact_board.append(compact_row)
+
+    compact_rack = sorted(normalize_letter(x) for x in rack if normalize_letter(x))
+    payload = {
+        "board": compact_board,
+        "rack": compact_rack,
+        "limit": limit,
+        "seconds": seconds,
+        "max_checks": max_checks,
+    }
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def get_cached(key: str):
+    global CACHE_HITS, CACHE_MISSES
+
+    if key in SOLVE_CACHE:
+        CACHE_HITS += 1
+        value = SOLVE_CACHE.pop(key)
+        SOLVE_CACHE[key] = value
+        cached = copy.deepcopy(value)
+        cached["debug"]["cacheHit"] = True
+        return cached
+
+    CACHE_MISSES += 1
+    return None
+
+
+def set_cached(key: str, value: dict):
+    SOLVE_CACHE[key] = copy.deepcopy(value)
+    while len(SOLVE_CACHE) > SOLVE_CACHE_MAX:
+        SOLVE_CACHE.popitem(last=False)
+
+
+def find_best_moves(ctx, rack, index, limit=900, seconds=8.0, max_checks=5_000_000):
     start_time = time.time()
     deadline = start_time + seconds
 
-    results = []
-    word_set = index.word_set
-    board_n = board_size(board)
-    max_len = min(board_n, len([x for x in rack if normalize_letter(x)]) + board_n)
+    rack_arr, joker_count, cleaned_rack = rack_array(rack)
+    rack_len = len(cleaned_rack)
 
-    rack_ctr = rack_counter(rack)
-    anchors = get_anchors(board)
+    max_len = min(ctx["n"], rack_len + ctx["n"])
+    anchors = ctx["anchors"]
     lengths = [length for length in range(2, max_len + 1) if length in index.by_length]
+
+    collector = TopCollector(limit=max(20, limit))
+    cross_cache = {}
 
     checks = 0
     pattern_hits = 0
     fit_hits = 0
     valid_hits = 0
-    expanded_starts_used = 0
-    cross_cache = {}
+    expanded_starts = 0
+    cache_candidate_hits = 0
+    skipped_cross = 0
+
+    board_tile_count = len(ctx["tiles"])
+    should_expand_base = (
+        board_tile_count >= 18
+        or len(anchors) >= 10
+        or max_checks >= 4_000_000
+    )
 
     for length in lengths:
         if time.time() > deadline or checks >= max_checks:
             break
-
-        raw_entries = index.by_length[length]
 
         for direction in (DIR_RIGHT, DIR_DOWN):
             if time.time() > deadline or checks >= max_checks:
@@ -729,43 +919,44 @@ def find_best_moves(
 
             starts = set()
 
-            if board_is_empty(board):
-                center_pos = board_n // 2
-                starts.update(candidate_start_positions(board, length, center_pos, center_pos, direction))
+            if ctx["empty"]:
+                cr, cc = ctx["center"]
+                starts.update(candidate_start_positions(ctx, length, cr, cc, direction))
             else:
                 for ar, ac in anchors:
-                    for row, col in candidate_start_positions(board, length, ar, ac, direction):
+                    for row, col in candidate_start_positions(ctx, length, ar, ac, direction):
                         starts.add((row, col))
 
-                # Turbo: daha fazla kombinasyon.
-                # Çok dolu tahtada ve/veya çok derin aramada anchor dışı olası slotlar da denenir.
-                board_tile_count_for_expand = sum(1 for r in range(board_n) for c in range(board_n) if get_letter(board, r, c))
-                should_expand = (
-                    board_tile_count_for_expand >= 22
-                    or len(anchors) >= 12
-                    or max_checks >= 4_000_000
-                )
-                if should_expand:
-                    before_count = len(starts)
-                    starts.update(all_legalish_start_positions(board, length, direction))
-                    expanded_starts_used += max(0, len(starts) - before_count)
+                if should_expand_base:
+                    before = len(starts)
+                    starts.update(all_legalish_start_positions(ctx, length, direction))
+                    expanded_starts += max(0, len(starts) - before)
 
             pattern_cache = {}
 
-            for row, col in ranked_starts(board, starts, length, direction):
+            for row, col in ranked_starts(ctx, starts, length, direction):
                 if time.time() > deadline or checks >= max_checks:
                     break
 
-                pattern, fixed_positions, empties = build_pattern(board, row, col, length, direction)
+                if not edge_ok(ctx, row, col, direction, length):
+                    continue
+
+                pattern, fixed_positions, empties, allowed_by_pos = build_pattern(ctx, row, col, length, direction)
+                if pattern is None:
+                    skipped_cross += 1
+                    continue
+
                 if empties == 0:
                     continue
 
                 cache_key = (length, pattern)
                 if cache_key not in pattern_cache:
-                    pattern_cache[cache_key] = prefilter_entries_pattern_fast(index, length, fixed_positions, rack, board)
+                    candidates = get_pattern_candidates(index, length, fixed_positions)
+                    pattern_cache[cache_key] = candidates
+                else:
+                    cache_candidate_hits += 1
 
                 entries = pattern_cache[cache_key]
-
                 if entries:
                     pattern_hits += 1
 
@@ -773,96 +964,96 @@ def find_best_moves(
                     if time.time() > deadline or checks >= max_checks:
                         break
 
-                    checks += 1
                     word = entry.word
 
-                    needed_preview = estimate_needed_letters(word, fixed_positions)
-                    if can_make_letters(needed_preview, rack_ctr) is None:
+                    # Cross-check ön hesaplama ile erken eleme.
+                    if allowed_by_pos and not word_matches_cross_allowed(word, allowed_by_pos):
+                        skipped_cross += 1
                         continue
 
-                    fit = fits(board, word, row, col, direction)
+                    # Counter yerine hızlı harf dizisi ile ön eleme.
+                    if not word_count_possible_for_needed(entry, fixed_positions, rack_arr, joker_count):
+                        continue
+
+                    checks += 1
+
+                    needed_preview = estimate_needed_letters(word, fixed_positions)
+                    joker_used_preview = can_make_needed_array(needed_preview, rack_arr, joker_count)
+                    if joker_used_preview is None:
+                        continue
+
+                    fit = fits(ctx, word, row, col, direction)
                     if not fit:
                         continue
 
                     fit_hits += 1
                     placed, needed, interaction_score, overlap_count = fit
 
-                    joker_used = can_make_letters(needed, rack_ctr)
+                    joker_used = can_make_needed_array(needed, rack_arr, joker_count)
                     if joker_used is None:
                         continue
 
-                    ok, created_words = all_words_valid_cached(board, word, direction, placed, word_set, cross_cache)
+                    ok, created_words = all_words_valid_cached(ctx, word, direction, placed, cross_cache)
                     if not ok:
                         continue
 
                     valid_hits += 1
-                    score, detail, cross_count = score_move(board, word, row, col, direction, placed, joker_used)
+                    score, detail, cross_count, joker_cells = score_move(ctx, word, row, col, direction, placed, joker_used)
 
                     covered = [
-                        (
-                            row + (i if direction == DIR_DOWN else 0),
-                            col + (i if direction == DIR_RIGHT else 0),
-                        )
+                        cell_at(direction, row, col, i)
                         for i in range(len(word))
                     ]
 
                     effective_score = score + (cross_count * 10) + (interaction_score * 4) + (overlap_count * 3)
-                    joker_cells = build_joker_cells(placed, joker_used)
 
-                    results.append(
-                        {
-                            "word": word,
-                            "row": row,
-                            "col": col,
-                            "direction": direction,
-                            "score": score,
-                            "effective_score": effective_score,
-                            "placed": placed,
-                            "covered": covered,
-                            "detail": detail + f" | desen={pattern}, etkileşim={interaction_score}, çapraz_sayısı={cross_count}",
-                            "created_words": created_words,
-                            "interaction_score": interaction_score,
-                            "cross_count": cross_count,
-                            "joker_cells": joker_cells,
-                        }
-                    )
+                    collector.add({
+                        "word": word,
+                        "row": row,
+                        "col": col,
+                        "direction": direction,
+                        "score": score,
+                        "effective_score": effective_score,
+                        "placed": placed,
+                        "covered": covered,
+                        "detail": detail + f" | desen={pattern}, etkileşim={interaction_score}, çapraz_sayısı={cross_count}",
+                        "created_words": created_words,
+                        "interaction_score": interaction_score,
+                        "cross_count": cross_count,
+                        "joker_cells": joker_cells,
+                    })
 
-    results.sort(key=lambda x: (-x["score"], x["word"]))
+                    # Çok iyi sayıda sonuç varsa hızlı modda gereksiz uzatma yapma.
+                    if len(collector.heap) >= limit and time.time() - start_time > seconds * 0.55:
+                        break
 
-    uniq = []
-    seen = set()
-
-    for move in results:
-        key = (move["word"], move["row"], move["col"], move["direction"], move["score"])
-        if key in seen:
-            continue
-
-        seen.add(key)
-        uniq.append(normalize_suggestion(move))
-
-        if len(uniq) >= limit:
-            break
+    uniq = [normalize_suggestion(move) for move in collector.results()[:limit]]
 
     return {
         "suggestions": uniq,
         "message": "" if uniq else "Bu taşlarla tahtaya kurallara uygun kelime yerleştirilemedi.",
         "debug": {
-            "engine": "v8.2_pattern_web_turbo",
+            "engine": "v8.2_pattern_ultra_fast",
             "wordCount": len(index.word_set),
-            "rack": list(rack_ctr.elements()),
-            "boardSize": board_n,
-            "boardTiles": sum(1 for r in range(board_n) for c in range(board_n) if get_letter(board, r, c)),
+            "rack": cleaned_rack,
+            "boardSize": ctx["n"],
+            "boardTiles": len(ctx["tiles"]),
             "anchors": len(anchors),
             "lengthBuckets": len(lengths),
             "checks": checks,
             "patternHits": pattern_hits,
             "fitHits": fit_hits,
             "validHits": valid_hits,
-            "expandedStarts": expanded_starts_used,
+            "expandedStarts": expanded_starts,
             "crossCacheSize": len(cross_cache),
+            "patternCacheSize": len(index.pattern_cache),
+            "localPatternCacheHits": cache_candidate_hits,
+            "skippedByCrossCheck": skipped_cross,
             "returned": len(uniq),
             "fallback": False,
             "timedOut": time.time() > deadline,
+            "elapsedMs": int((time.time() - start_time) * 1000),
+            "cacheHit": False,
         },
     }
 
@@ -871,9 +1062,9 @@ def generate_moves(
     board: List[List[Any]],
     rack: List[str],
     index: DictionaryIndex,
-    limit: int = 300,
-    seconds: float = 12.0,
-    max_checks: int = 1_200_000,
+    limit: int = 900,
+    seconds: float = 8.0,
+    max_checks: int = 5_000_000,
     **_kwargs,
 ):
     cleaned_rack = [normalize_letter(x) for x in rack if normalize_letter(x)]
@@ -883,10 +1074,11 @@ def generate_moves(
             "suggestions": [],
             "message": "Harf alanına en az bir taş gir.",
             "debug": {
-                "engine": "v8.2_pattern_web_turbo",
+                "engine": "v8.2_pattern_ultra_fast",
                 "reason": "empty_rack",
                 "wordCount": len(index.word_set),
                 "fallback": False,
+                "cacheHit": False,
             },
         }
 
@@ -895,18 +1087,28 @@ def generate_moves(
             "suggestions": [],
             "message": "Sözlük yüklenmedi. backend/data klasörünü kontrol et.",
             "debug": {
-                "engine": "v8.2_pattern_web_turbo",
+                "engine": "v8.2_pattern_ultra_fast",
                 "reason": "empty_dictionary",
                 "wordCount": 0,
                 "fallback": False,
+                "cacheHit": False,
             },
         }
 
-    return find_best_moves(
-        board=board,
+    key = make_cache_key(board, cleaned_rack, limit, seconds, max_checks)
+    cached = get_cached(key)
+    if cached is not None:
+        return cached
+
+    ctx = build_board_context(board, index.word_set)
+    result = find_best_moves(
+        ctx=ctx,
         rack=cleaned_rack,
         index=index,
         limit=limit,
         seconds=seconds,
         max_checks=max_checks,
     )
+
+    set_cached(key, result)
+    return result
