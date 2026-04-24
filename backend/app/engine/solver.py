@@ -715,7 +715,7 @@ def generate_moves(
                 start_candidates.append((rr, cc))
 
                 temp_r, temp_c = rr, cc
-                for _ in range(max_rack_letters + backtrack_extra + 8):
+                for _ in range(max_rack_letters + backtrack_extra + 10):
                     pr, pc = temp_r + back_step_r, temp_c + back_step_c
                     if not in_bounds(board, pr, pc):
                         break
