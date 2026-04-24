@@ -1,338 +1,249 @@
 from __future__ import annotations
-
-import heapq
-import time
+import heapq, time
 from collections import Counter
-from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from dataclasses import dataclass, field
+from typing import Dict, Iterable, List, Set, Tuple
 
-DIR_RIGHT = "YATAY"
-DIR_DOWN = "DIKEY"
-TR_MAP = {"i": "İ", "ı": "I", "ş": "Ş", "ğ": "Ğ", "ü": "Ü", "ö": "Ö", "ç": "Ç"}
-LETTER_SCORES = {
-    "A": 1, "B": 3, "C": 4, "Ç": 4, "D": 3, "E": 1, "F": 7, "G": 5, "Ğ": 8,
-    "H": 5, "I": 2, "İ": 1, "J": 10, "K": 1, "L": 1, "M": 2, "N": 1, "O": 2,
-    "Ö": 7, "P": 5, "R": 1, "S": 2, "Ş": 4, "T": 1, "U": 2, "Ü": 3, "V": 7,
-    "Y": 3, "Z": 4, "?": 0,
-}
-WORD_MULTIPLIERS = {"K2": 2, "K3": 3, "START": 2}
-LETTER_MULTIPLIERS = {"H2": 2, "H3": 3}
-TR_LETTERS = tuple(ch for ch in LETTER_SCORES if ch != "?")
+DIR_RIGHT='YATAY'; DIR_DOWN='DIKEY'
+TR_MAP={'i':'İ','ı':'I','ş':'Ş','ğ':'Ğ','ü':'Ü','ö':'Ö','ç':'Ç'}
+LETTER_SCORES={'A':1,'B':3,'C':4,'Ç':4,'D':3,'E':1,'F':7,'G':5,'Ğ':8,'H':5,'I':2,'İ':1,'J':10,'K':1,'L':1,'M':2,'N':1,'O':2,'Ö':7,'P':5,'R':1,'S':2,'Ş':4,'T':1,'U':2,'Ü':3,'V':7,'Y':3,'Z':4,'?':0}
+WORD_MULTIPLIERS={'K2':2,'K3':3,'START':2}; LETTER_MULTIPLIERS={'H2':2,'H3':3}
+TR_LETTERS=tuple(ch for ch in LETTER_SCORES if ch!='?')
 
-
-def normalize_letter(ch: str) -> str:
-    if not ch:
-        return ""
-    ch = str(ch).strip()[:1]
-    if ch in TR_MAP:
-        return TR_MAP[ch]
-    return ch.upper().replace("İ", "İ")
-
-
-def normalize_word(word: str) -> str:
-    return "".join(normalize_letter(ch) for ch in str(word) if str(ch).strip())
-
-
-def is_valid_word(word: str) -> bool:
-    return len(word) >= 2 and all(ch in LETTER_SCORES and ch != "?" for ch in word)
-
-
+def normalize_letter(ch:str)->str:
+    if not ch: return ''
+    ch=str(ch).strip()[:1]
+    return TR_MAP.get(ch, ch.upper().replace('İ','İ'))
+def normalize_word(w:str)->str: return ''.join(normalize_letter(c) for c in str(w) if str(c).strip())
+def is_valid_word(w:str)->bool: return len(w)>=2 and all(c in LETTER_SCORES and c!='?' for c in w)
+class TrieNode:
+    __slots__=('children','terminal')
+    def __init__(self): self.children={}; self.terminal=False
 @dataclass
 class DictionaryIndex:
-    word_set: Set[str]
-    words: List[str]
-
-
-def build_dictionary_index(words: Iterable[str]) -> DictionaryIndex:
-    word_set: Set[str] = set()
-    clean_words: List[str] = []
+    word_set:Set[str]; words_by_length:Dict[int,List[str]]; trie:TrieNode; words:List[str]; letters:Tuple[str,...]=field(default_factory=lambda:TR_LETTERS)
+def build_dictionary_index(words:Iterable[str])->DictionaryIndex:
+    ws=set(); by={}; clean=[]; trie=TrieNode()
     for raw in words:
-        word = normalize_word(raw)
-        if not is_valid_word(word) or word in word_set:
-            continue
-        word_set.add(word)
-        clean_words.append(word)
-    clean_words.sort(key=lambda w: (-sum(LETTER_SCORES.get(c, 0) for c in w), -len(w), w))
-    return DictionaryIndex(word_set=word_set, words=clean_words)
+        w=normalize_word(raw)
+        if not is_valid_word(w) or w in ws: continue
+        ws.add(w); clean.append(w); by.setdefault(len(w),[]).append(w)
+        node=trie
+        for c in w: node=node.children.setdefault(c,TrieNode())
+        node.terminal=True
+    clean.sort(key=lambda w:(-sum(LETTER_SCORES.get(c,0) for c in w),-len(w),w))
+    return DictionaryIndex(ws,by,trie,clean)
 
-
-def size(board):
-    return len(board)
-
-
-def in_bounds(board, r, c):
-    return 0 <= r < size(board) and 0 <= c < size(board)
-
-
-def center(board):
-    n = size(board)
-    return n // 2, n // 2
-
-
-def get_letter(board, r, c):
-    if not in_bounds(board, r, c):
-        return ""
-    cell = board[r][c]
-    if isinstance(cell, dict):
-        return normalize_letter(cell.get("letter", ""))
-    return normalize_letter(cell)
-
-
-def get_bonus(board, r, c):
-    if not in_bounds(board, r, c):
-        return None
-    cell = board[r][c]
-    return cell.get("bonus") if isinstance(cell, dict) else None
-
-
-def has_tiles(board):
-    return any(get_letter(board, r, c) for r in range(size(board)) for c in range(size(board)))
-
-
-def rack_counter(rack: List[str]) -> Counter:
-    cnt = Counter()
+def size(board): return len(board)
+def inb(board,r,c): return 0<=r<size(board) and 0<=c<size(board)
+def center(board): s=size(board); return s//2,s//2
+def cell(board,r,c): return board[r][c]
+def get_letter(board,r,c):
+    if not inb(board,r,c): return ''
+    x=cell(board,r,c)
+    return normalize_letter(x.get('letter','') if isinstance(x,dict) else x)
+def get_bonus(board,r,c):
+    if not inb(board,r,c): return None
+    x=cell(board,r,c); return x.get('bonus') if isinstance(x,dict) else None
+def board_has_tiles(board):
+    return any(get_letter(board,r,c) for r in range(size(board)) for c in range(size(board)))
+def rack_counter(rack):
+    cnt=Counter()
     for ch in rack:
-        n = normalize_letter(ch)
-        if n:
-            cnt[n] += 1
+        n=normalize_letter(ch)
+        if n: cnt[n]+=1
     return cnt
-
-
-def board_counter(board) -> Counter:
-    cnt = Counter()
+def board_counter(board):
+    cnt=Counter()
     for r in range(size(board)):
         for c in range(size(board)):
-            ch = get_letter(board, r, c)
-            if ch:
-                cnt[ch] += 1
+            ch=get_letter(board,r,c)
+            if ch: cnt[ch]+=1
     return cnt
 
+def before(direction,r,c): return (r,c-1) if direction==DIR_RIGHT else (r-1,c)
+def line_letters(board,r,c,direction,length):
+    out=[]
+    for i in range(length):
+        rr=r+(i if direction==DIR_DOWN else 0); cc=c+(i if direction==DIR_RIGHT else 0)
+        if not inb(board,rr,cc): return None
+        out.append(get_letter(board,rr,cc))
+    return out
+def has_blocking(board,r,c,direction,length):
+    br,bc=before(direction,r,c); ar=r+(length if direction==DIR_DOWN else 0); ac=c+(length if direction==DIR_RIGHT else 0)
+    return (inb(board,br,bc) and get_letter(board,br,bc)) or (inb(board,ar,ac) and get_letter(board,ar,ac))
+def passes_center(r,c,direction,length,ctr):
+    return any((r+(i if direction==DIR_DOWN else 0), c+(i if direction==DIR_RIGHT else 0))==ctr for i in range(length))
+def touches_neighbor(board,r,c,direction):
+    ns=((r-1,c),(r+1,c)) if direction==DIR_RIGHT else ((r,c-1),(r,c+1))
+    return any(inb(board,nr,nc) and get_letter(board,nr,nc) for nr,nc in ns)
+def word_coords(board,r,c,direction,placed_map):
+    dr,dc=(0,1) if direction==DIR_RIGHT else (1,0)
+    rr,cc=r,c
+    while inb(board,rr-dr,cc-dc):
+        ch=placed_map.get((rr-dr,cc-dc)) or get_letter(board,rr-dr,cc-dc)
+        if not ch: break
+        rr-=dr; cc-=dc
+    out=[]
+    while inb(board,rr,cc):
+        ch=placed_map.get((rr,cc)) or get_letter(board,rr,cc)
+        if not ch: break
+        out.append((rr,cc,ch)); rr+=dr; cc+=dc
+    return out
+def coords_word(coords): return ''.join(ch for _,_,ch in coords)
+def score_coords(board,coords,new,jokers):
+    total=0; mul=1
+    for r,c,ch in coords:
+        score=0 if jokers.get((r,c),False) else LETTER_SCORES.get(ch,0)
+        if (r,c) in new:
+            b=get_bonus(board,r,c)
+            if b in LETTER_MULTIPLIERS: score*=LETTER_MULTIPLIERS[b]
+            elif b in WORD_MULTIPLIERS: mul*=WORD_MULTIPLIERS[b]
+        total+=score
+    return total*mul
+
+def perp_frag(board,r,c,direction):
+    if direction==DIR_RIGHT: a=(-1,0); b=(1,0)
+    else: a=(0,-1); b=(0,1)
+    left=[]; rr=r+a[0]; cc=c+a[1]
+    while inb(board,rr,cc) and get_letter(board,rr,cc): left.append(get_letter(board,rr,cc)); rr+=a[0]; cc+=a[1]
+    left.reverse(); right=[]; rr=r+b[0]; cc=c+b[1]
+    while inb(board,rr,cc) and get_letter(board,rr,cc): right.append(get_letter(board,rr,cc)); rr+=b[0]; cc+=b[1]
+    return ''.join(left),''.join(right)
+def cross_valid(board,r,c,direction,ch,word_set):
+    p,s=perp_frag(board,r,c,direction)
+    return True if not p and not s else (p+ch+s) in word_set
 
 def anchors(board):
-    if not has_tiles(board):
-        return [center(board)]
-    out = set()
+    if not board_has_tiles(board): return [center(board)]
+    out=set()
     for r in range(size(board)):
         for c in range(size(board)):
-            if get_letter(board, r, c):
-                for nr, nc in ((r-1,c),(r+1,c),(r,c-1),(r,c+1)):
-                    if in_bounds(board, nr, nc) and not get_letter(board, nr, nc):
-                        out.add((nr, nc))
-    cr, cc = center(board)
+            if get_letter(board,r,c):
+                for nr,nc in ((r-1,c),(r+1,c),(r,c-1),(r,c+1)):
+                    if inb(board,nr,nc) and not get_letter(board,nr,nc): out.add((nr,nc))
+    ctr=center(board)
     def rank(rc):
-        r, c = rc
-        bonus = 0
-        for nr, nc in ((r,c),(r-1,c),(r+1,c),(r,c-1),(r,c+1)):
-            if in_bounds(board, nr, nc):
-                b = get_bonus(board, nr, nc)
-                if b in ("K3", "H3"):
-                    bonus -= 5
-                elif b in ("K2", "H2", "START"):
-                    bonus -= 3
-        density = -sum(1 for nr,nc in ((r-1,c),(r+1,c),(r,c-1),(r,c+1)) if in_bounds(board,nr,nc) and get_letter(board,nr,nc))
-        return (bonus, density, abs(r-cr)+abs(c-cc))
-    return sorted(out, key=rank)
+        r,c=rc; b=get_bonus(board,r,c); bonus=-10 if b in ('K3','H3') else (-5 if b in ('K2','H2','START') else 0)
+        dens=-sum(1 for nr,nc in ((r-1,c),(r+1,c),(r,c-1),(r,c+1)) if inb(board,nr,nc) and get_letter(board,nr,nc))
+        return bonus,dens,abs(r-ctr[0])+abs(c-ctr[1]),r,c
+    return sorted(out,key=rank)
 
-
-def line_letters(board, row, col, direction, length):
-    out = []
-    for i in range(length):
-        r = row + (i if direction == DIR_DOWN else 0)
-        c = col + (i if direction == DIR_RIGHT else 0)
-        if not in_bounds(board, r, c):
-            return None
-        out.append(get_letter(board, r, c))
-    return out
-
-
-def before_after_blocked(board, row, col, direction, length):
-    br, bc = (row, col-1) if direction == DIR_RIGHT else (row-1, col)
-    ar, ac = row + (length if direction == DIR_DOWN else 0), col + (length if direction == DIR_RIGHT else 0)
-    return (in_bounds(board, br, bc) and get_letter(board, br, bc)) or (in_bounds(board, ar, ac) and get_letter(board, ar, ac))
-
-
-def passes_center(board, row, col, direction, length):
-    cr, cc = center(board)
-    return any((row + (i if direction == DIR_DOWN else 0), col + (i if direction == DIR_RIGHT else 0)) == (cr, cc) for i in range(length))
-
-
-def perpendicular_fragments(board, row, col, direction):
-    if direction == DIR_RIGHT:
-        a, b = (-1,0), (1,0)
-    else:
-        a, b = (0,-1), (0,1)
-    left=[]; r=row+a[0]; c=col+a[1]
-    while in_bounds(board,r,c) and get_letter(board,r,c):
-        left.append(get_letter(board,r,c)); r+=a[0]; c+=a[1]
-    left.reverse()
-    right=[]; r=row+b[0]; c=col+b[1]
-    while in_bounds(board,r,c) and get_letter(board,r,c):
-        right.append(get_letter(board,r,c)); r+=b[0]; c+=b[1]
-    return "".join(left), "".join(right)
-
-
-def cross_valid(board, row, col, direction, ch, word_set):
-    pre, suf = perpendicular_fragments(board, row, col, direction)
-    return True if not pre and not suf else f"{pre}{ch}{suf}" in word_set
-
-
-def consume_rack(board, word, row, col, direction, rack):
-    line = line_letters(board, row, col, direction, len(word))
-    if line is None:
-        return None
-    left = rack.copy()
-    jokers = set()
-    used_new = 0
-    for i, ch in enumerate(word):
-        r = row + (i if direction == DIR_DOWN else 0)
-        c = col + (i if direction == DIR_RIGHT else 0)
-        existing = line[i]
-        if existing:
-            if existing != ch:
-                return None
-            continue
-        if left.get(ch, 0) > 0:
-            left[ch] -= 1
-            if left[ch] == 0: del left[ch]
-        elif left.get("?", 0) > 0:
-            left["?"] -= 1
-            if left["?"] == 0: del left["?"]
-            jokers.add((r, c))
-        else:
-            return None
-        used_new += 1
-    return jokers if used_new else None
-
-
-def build_word_coords(board, row, col, direction, placed):
-    dr, dc = (0,1) if direction == DIR_RIGHT else (1,0)
-    r, c = row, col
-    while in_bounds(board, r-dr, c-dc) and (placed.get((r-dr,c-dc)) or get_letter(board,r-dr,c-dc)):
-        r -= dr; c -= dc
-    coords=[]
-    while in_bounds(board,r,c):
-        ch = placed.get((r,c)) or get_letter(board,r,c)
-        if not ch: break
-        coords.append((r,c,ch)); r += dr; c += dc
-    return coords
-
-
-def score_coords(board, coords, new_cells, joker_map):
-    total = 0; word_mul = 1
-    for r,c,ch in coords:
-        val = 0 if joker_map.get((r,c), False) else LETTER_SCORES.get(ch, 0)
-        if (r,c) in new_cells:
-            b = get_bonus(board,r,c)
-            if b in LETTER_MULTIPLIERS:
-                val *= LETTER_MULTIPLIERS[b]
-            elif b in WORD_MULTIPLIERS:
-                word_mul *= WORD_MULTIPLIERS[b]
-        total += val
-    return total * word_mul
-
-
-def make_move(board, word_set, word, row, col, direction, jokers):
-    if line_letters(board,row,col,direction,len(word)) is None:
-        return None
-    if before_after_blocked(board,row,col,direction,len(word)):
-        return None
-    if not has_tiles(board) and not passes_center(board,row,col,direction,len(word)):
-        return None
-    line = line_letters(board,row,col,direction,len(word))
-    placed = {}; joker_map = {}; new_cells=set(); placed_list=[]; interaction=0; overlap=0
+def consume(board,word,r,c,direction,rack):
+    line=line_letters(board,r,c,direction,len(word))
+    if line is None: return None
+    left=rack.copy(); jok=set()
     for i,ch in enumerate(word):
-        r = row + (i if direction == DIR_DOWN else 0)
-        c = col + (i if direction == DIR_RIGHT else 0)
-        existing = line[i]
-        if existing:
-            if existing != ch: return None
-            interaction += 1; overlap += 1
-        else:
-            if not cross_valid(board,r,c,direction,ch,word_set): return None
-            is_joker = (r,c) in jokers
-            placed[(r,c)] = ch; joker_map[(r,c)] = is_joker; new_cells.add((r,c))
-            placed_list.append({"row":r,"col":c,"letter":ch,"is_joker":is_joker})
-            if any(in_bounds(board,nr,nc) and get_letter(board,nr,nc) for nr,nc in (((r-1,c),(r+1,c)) if direction==DIR_RIGHT else ((r,c-1),(r,c+1)))):
-                interaction += 1
-    if not placed_list: return None
-    if has_tiles(board) and interaction == 0 and overlap == 0: return None
-    main_coords = build_word_coords(board,row,col,direction,placed)
-    main_word = "".join(ch for _,_,ch in main_coords)
-    if main_word != word or main_word not in word_set: return None
-    score = score_coords(board, main_coords, new_cells, joker_map)
-    cross_words=[]; created=[main_word]
-    cross_dir = DIR_DOWN if direction == DIR_RIGHT else DIR_RIGHT
-    for p in placed_list:
-        coords = build_word_coords(board, p["row"], p["col"], cross_dir, placed)
-        cw = "".join(ch for _,_,ch in coords)
-        if len(cw) > 1:
-            if cw not in word_set: return None
-            cross_words.append(cw); created.append(cw)
-            score += score_coords(board, coords, {(p["row"],p["col"])}, joker_map)
-    if len(placed_list) == 7: score += 50
-    return {"word":word,"row":row,"col":col,"direction":direction,"position":f"{direction} · {row+1} / {col+1}","score":score,"placed":placed_list,"createdWords":created,"crossWords":cross_words,"interaction":interaction,"overlap":overlap}
+        rr=r+(i if direction==DIR_DOWN else 0); cc=c+(i if direction==DIR_RIGHT else 0)
+        ex=line[i]
+        if ex:
+            if ex!=ch: return None
+            continue
+        if left.get(ch,0)>0:
+            left[ch]-=1
+            if left[ch]==0: del left[ch]
+        elif left.get('?',0)>0:
+            left['?']-=1
+            if left['?']==0: del left['?']
+            jok.add((rr,cc))
+        else: return None
+    return jok
 
+def compute(board,word_set,word,r,c,direction,joker_positions=None,require_connection=True):
+    if joker_positions is None: joker_positions=set()
+    line=line_letters(board,r,c,direction,len(word))
+    if line is None or has_blocking(board,r,c,direction,len(word)): return None
+    empty=not board_has_tiles(board)
+    if empty and not passes_center(r,c,direction,len(word),center(board)): return None
+    placed=[]; pmap={}; jmap={}; new=set(); inter=0; overlap=0
+    for i,ch in enumerate(word):
+        rr=r+(i if direction==DIR_DOWN else 0); cc=c+(i if direction==DIR_RIGHT else 0); ex=line[i]
+        if ex:
+            if ex!=ch: return None
+            overlap+=1; inter+=1
+        else:
+            if not cross_valid(board,rr,cc,direction,ch,word_set): return None
+            isj=(rr,cc) in joker_positions
+            placed.append({'row':rr,'col':cc,'letter':ch,'is_joker':isj}); pmap[(rr,cc)]=ch; jmap[(rr,cc)]=isj; new.add((rr,cc))
+            if touches_neighbor(board,rr,cc,direction): inter+=1
+    if not placed: return None
+    if not empty and require_connection and inter==0 and overlap==0: return None
+    main=word_coords(board,r,c,direction,pmap); mainword=coords_word(main)
+    if mainword!=word or mainword not in word_set: return None
+    total=score_coords(board,main,new,jmap); cross=[]; created=[mainword]; crossdir=DIR_DOWN if direction==DIR_RIGHT else DIR_RIGHT
+    for t in placed:
+        cr=word_coords(board,t['row'],t['col'],crossdir,pmap); cw=coords_word(cr)
+        if len(cw)>1:
+            if cw not in word_set: return None
+            cross.append(cw); created.append(cw); total+=score_coords(board,cr,{(t['row'],t['col'])},jmap)
+    if len(placed)==7: total+=50
+    return {'word':word,'row':r,'col':c,'direction':direction,'position':f'{direction} · {r+1} / {c+1}','score':total,'placed':placed,'createdWords':created,'crossWords':cross,'interaction':inter,'overlap':overlap,'connected':bool(inter or overlap or empty)}
 
 class TopCollector:
-    def __init__(self, limit):
-        self.limit=limit; self.heap=[]; self.seen=set(); self.counter=0
-    def add(self, move):
-        key=(move["word"],move["row"],move["col"],move["direction"])
+    def __init__(self,limit): self.limit=limit; self.heap=[]; self.seen=set(); self.counter=0
+    def rank(self,m): return (int(m['score']),int(m.get('connected',False)),len(m['placed']),int(m['interaction']),len(m['word']),-int(m['row']),-int(m['col']))
+    def add(self,m):
+        key=(m['word'],m['row'],m['col'],m['direction'])
         if key in self.seen: return
-        self.seen.add(key); self.counter += 1
-        rank=(int(move["score"]), len(move["placed"]), int(move["interaction"]), len(move["word"]), -int(move["row"]), -int(move["col"]))
-        entry=(rank,self.counter,move)
+        self.seen.add(key); self.counter+=1; entry=(self.rank(m),self.counter,m)
         if len(self.heap)<self.limit: heapq.heappush(self.heap,entry)
-        elif rank > self.heap[0][0]: heapq.heapreplace(self.heap,entry)
+        elif entry[0]>self.heap[0][0]: heapq.heapreplace(self.heap,entry)
     def results(self):
-        out=[x[2] for x in self.heap]
-        out.sort(key=lambda m:(-m["score"],-len(m["placed"]),-m["interaction"],-len(m["word"]),m["word"],m["row"],m["col"]))
-        return out
+        items=[x[2] for x in self.heap]
+        items.sort(key=lambda m:(-int(m['score']),-int(m.get('connected',False)),-len(m['placed']),-int(m['interaction']),-len(m['word']),m['word'],int(m['row']),int(m['col'])))
+        return items
 
-
-def start_positions(board, word_len, direction, anchor_list, backtrack_extra):
-    starts=set(); n=size(board)
+def starts(board,word_len,direction,anchor_list,backtrack_extra,allow_all):
+    out=set(); s=size(board)
     for ar,ac in anchor_list:
-        for i in range(word_len + backtrack_extra + 2):
-            r = ar - (i if direction == DIR_DOWN else 0)
-            c = ac - (i if direction == DIR_RIGHT else 0)
-            er = r + (word_len-1 if direction == DIR_DOWN else 0)
-            ec = c + (word_len-1 if direction == DIR_RIGHT else 0)
-            if in_bounds(board,r,c) and in_bounds(board,er,ec): starts.add((r,c))
-    if backtrack_extra >= 20:
-        for r in range(n):
-            for c in range(n):
-                er = r + (word_len-1 if direction == DIR_DOWN else 0)
-                ec = c + (word_len-1 if direction == DIR_RIGHT else 0)
-                if in_bounds(board,r,c) and in_bounds(board,er,ec): starts.add((r,c))
-    return list(starts)
+        for i in range(word_len+backtrack_extra+2):
+            r=ar-(i if direction==DIR_DOWN else 0); c=ac-(i if direction==DIR_RIGHT else 0)
+            er=r+((word_len-1) if direction==DIR_DOWN else 0); ec=c+((word_len-1) if direction==DIR_RIGHT else 0)
+            if inb(board,r,c) and inb(board,er,ec): out.add((r,c))
+    if allow_all:
+        for r in range(s):
+            for c in range(s):
+                er=r+((word_len-1) if direction==DIR_DOWN else 0); ec=c+((word_len-1) if direction==DIR_RIGHT else 0)
+                if inb(board,er,ec): out.add((r,c))
+    return list(out)
 
+def possible(word,available,jokers):
+    need=Counter(word); miss=0
+    for ch,n in need.items():
+        have=available.get(ch,0)
+        if have<n:
+            miss+=n-have
+            if miss>jokers: return False
+    return True
 
-def generate_moves(board, rack, index, limit=500, seconds=30.0, max_checks=1800000, backtrack_extra=20):
-    deadline = time.time() + seconds
-    rack_cnt = rack_counter(rack)
-    available = rack_cnt + board_counter(board)
-    anchor_list = anchors(board)
-    collector = TopCollector(max(20, limit))
-    n = size(board)
-    empty = not has_tiles(board)
-    max_len = min(n, max(2, sum(rack_cnt.values()) + (10 if empty else 14)))
-    checks = 0
+def generate_moves(board,rack,index,limit=500,seconds=30.0,max_checks=1800000,backtrack_extra=20,allow_disconnected=False):
+    start=time.time(); deadline=start+seconds; rackcnt=rack_counter(rack)
+    if sum(rackcnt.values())==0: return []
+    empty=not board_has_tiles(board); max_len=min(size(board),max(2,sum(rackcnt.values())+(10 if empty else 14)))
+    an=anchors(board); available=rackcnt+board_counter(board); jokers=rackcnt.get('?',0); coll=TopCollector(max(20,limit)); checks=0
     for word in index.words:
-        if time.time() > deadline or checks >= max_checks: break
-        if len(word) > max_len: continue
-        need = Counter(word); missing = 0
-        for ch,cnt in need.items():
-            have=available.get(ch,0)
-            if have<cnt: missing += cnt-have
-        if missing > rack_cnt.get("?",0): continue
-        for direction in (DIR_RIGHT, DIR_DOWN):
-            for row,col in start_positions(board,len(word),direction,anchor_list,backtrack_extra):
-                if time.time() > deadline or checks >= max_checks: break
-                checks += 1
-                if before_after_blocked(board,row,col,direction,len(word)): continue
-                jokers = consume_rack(board,word,row,col,direction,rack_cnt)
-                if jokers is None: continue
-                move = make_move(board,index.word_set,word,row,col,direction,jokers)
-                if move: collector.add(move)
-    return collector.results()[:limit]
+        if time.time()>deadline or checks>=max_checks: break
+        if len(word)>max_len or not possible(word,available,jokers): continue
+        for direction in (DIR_RIGHT,DIR_DOWN):
+            for r,c in starts(board,len(word),direction,an,backtrack_extra,allow_all=(empty or backtrack_extra>=20)):
+                if time.time()>deadline or checks>=max_checks: break
+                checks+=1
+                if has_blocking(board,r,c,direction,len(word)): continue
+                jp=consume(board,word,r,c,direction,rackcnt)
+                if jp is None: continue
+                m=compute(board,index.word_set,word,r,c,direction,jp,require_connection=True)
+                if m: coll.add(m)
+    if allow_disconnected and time.time()<deadline and len(coll.heap)<max(50,limit//5):
+        for word in index.words:
+            if time.time()>deadline or checks>=max_checks: break
+            if len(word)>min(size(board),sum(rackcnt.values())) or not possible(word,rackcnt,jokers): continue
+            for direction in (DIR_RIGHT,DIR_DOWN):
+                for r,c in starts(board,len(word),direction,an or [center(board)],backtrack_extra,allow_all=True):
+                    if time.time()>deadline or checks>=max_checks: break
+                    checks+=1
+                    if has_blocking(board,r,c,direction,len(word)): continue
+                    jp=consume(board,word,r,c,direction,rackcnt)
+                    if jp is None: continue
+                    m=compute(board,index.word_set,word,r,c,direction,jp,require_connection=False)
+                    if m: coll.add(m)
+    return coll.results()[:limit]
