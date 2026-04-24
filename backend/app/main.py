@@ -62,7 +62,7 @@ def root():
     return {
         "ok": True,
         "name": "Kelime Asistanı API",
-        "engine": "v8.2 pattern web",
+        "engine": "v8.2 pattern web plus",
         "docs": "/docs",
         "wordCount": len(DICT_INDEX.word_set),
         "files": len(list(DATA_DIR.glob("*"))) if DATA_DIR.exists() else 0,
@@ -78,7 +78,7 @@ def head_root():
 def health():
     return {
         "ok": True,
-        "engine": "v8.2 pattern web",
+        "engine": "v8.2 pattern web plus",
         "wordCount": len(DICT_INDEX.word_set),
         "files": len(list(DATA_DIR.glob("*"))) if DATA_DIR.exists() else 0,
         "dataDir": str(DATA_DIR),
@@ -89,7 +89,7 @@ def health():
 def debug():
     return {
         "ok": True,
-        "engine": "v8.2 pattern web",
+        "engine": "v8.2 pattern web plus",
         "wordCount": len(DICT_INDEX.word_set),
         "files": [p.name for p in DATA_DIR.glob("*")] if DATA_DIR.exists() else [],
         "sampleWords": DICT_INDEX.sample_words[:30],
@@ -146,14 +146,14 @@ def solve(payload: SolveRequest):
 
         settings = {
             "fast": {
-                "limit": 500,
-                "seconds": 12.0,
-                "max_checks": 1_200_000,
+                "limit": 700,
+                "seconds": 18.0,
+                "max_checks": 2_500_000,
             },
             "max": {
-                "limit": 1000,
-                "seconds": 28.0,
-                "max_checks": 4_000_000,
+                "limit": 1500,
+                "seconds": 38.0,
+                "max_checks": 9_000_000,
             },
         }[requested_mode]
 
