@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from .engine.solver import build_dictionary_index, generate_moves
+from .engine.solver import build_dictionary_index, generate_moves, cache_stats
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -62,10 +62,11 @@ def root():
     return {
         "ok": True,
         "name": "Kelime Asistanı API",
-        "engine": "v8.2 pattern web turbo",
+        "engine": "v8.2 pattern ultra fast",
         "docs": "/docs",
         "wordCount": len(DICT_INDEX.word_set),
         "files": len(list(DATA_DIR.glob("*"))) if DATA_DIR.exists() else 0,
+        "cache": cache_stats(),
     }
 
 
@@ -78,10 +79,11 @@ def head_root():
 def health():
     return {
         "ok": True,
-        "engine": "v8.2 pattern web turbo",
+        "engine": "v8.2 pattern ultra fast",
         "wordCount": len(DICT_INDEX.word_set),
         "files": len(list(DATA_DIR.glob("*"))) if DATA_DIR.exists() else 0,
         "dataDir": str(DATA_DIR),
+        "cache": cache_stats(),
     }
 
 
@@ -89,10 +91,11 @@ def health():
 def debug():
     return {
         "ok": True,
-        "engine": "v8.2 pattern web turbo",
+        "engine": "v8.2 pattern ultra fast",
         "wordCount": len(DICT_INDEX.word_set),
         "files": [p.name for p in DATA_DIR.glob("*")] if DATA_DIR.exists() else [],
         "sampleWords": DICT_INDEX.sample_words[:30],
+        "cache": cache_stats(),
     }
 
 
@@ -147,13 +150,13 @@ def solve(payload: SolveRequest):
         settings = {
             "fast": {
                 "limit": 900,
-                "seconds": 14.0,
-                "max_checks": 4_000_000,
+                "seconds": 8.0,
+                "max_checks": 5_000_000,
             },
             "max": {
                 "limit": 1800,
-                "seconds": 35.0,
-                "max_checks": 14_000_000,
+                "seconds": 28.0,
+                "max_checks": 18_000_000,
             },
         }[requested_mode]
 
