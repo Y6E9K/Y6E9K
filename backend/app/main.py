@@ -117,21 +117,7 @@ def get_board(board_type: str):
     else:
         size = 15
         bonus_grid = [
-            [None, None, "K3", None, None, "H2", None, None, None, "H2", None, None, "K3", None, None],
-            [None, "H3", None, None, None, None, "H2", None, "H2", None, None, None, None, "H3", None],
-            ["K3", None, None, None, None, None, None, "K2", None, None, None, None, None, None, "K3"],
-            [None, None, None, "K2", None, None, None, None, None, None, None, "K2", None, None, None],
-            [None, None, None, None, "H3", None, None, None, None, None, "H3", None, None, None, None],
-            ["H2", None, None, None, None, "H2", None, None, None, "H2", None, None, None, None, "H2"],
-            [None, "H2", None, None, None, None, "H2", None, "H2", None, None, None, None, "H2", None],
-            [None, None, "K2", None, None, None, None, "START", None, None, None, None, "K2", None, None],
-            [None, "H2", None, None, None, None, "H2", None, "H2", None, None, None, None, "H2", None],
-            ["H2", None, None, None, None, "H2", None, None, None, "H2", None, None, None, None, "H2"],
-            [None, None, None, None, "H3", None, None, None, None, None, "H3", None, None, None, None],
-            [None, None, None, "K2", None, None, None, None, None, None, None, "K2", None, None, None],
-            ["K3", None, None, None, None, None, None, "K2", None, None, None, None, None, None, "K3"],
-            [None, "H3", None, None, None, None, "H2", None, "H2", None, None, None, None, "H3", None],
-            [None, None, "K3", None, None, "H2", None, None, None, "H2", None, None, "K3", None, None],
+            
         ]
 
     return {
