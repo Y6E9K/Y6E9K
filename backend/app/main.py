@@ -7,25 +7,31 @@ from pydantic import BaseModel
 
 from .engine.solver import build_dictionary_index, generate_moves
 
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 
 
 def load_dictionary_words() -> List[str]:
     words: List[str] = []
+
     if not DATA_DIR.exists():
         return words
+
     for file_path in DATA_DIR.glob("*"):
         if not file_path.is_file():
             continue
+
         try:
             content = file_path.read_text(encoding="utf-8", errors="ignore")
         except Exception:
             continue
+
         for line in content.splitlines():
             line = line.strip()
             if line:
                 words.append(line)
+
     return words
 
 
@@ -121,17 +127,35 @@ def get_board(board_type: str):
             [None, "H3", None, None, None, None, "H2", None, "H2", None, None, None, None, "H3", None],
             [None, None, "K3", None, None, "H2", None, None, None, "H2", None, None, "K3", None, None],
         ]
-    return {"boardType": board_type, "size": size, "bonusGrid": bonus_grid, "center": [size // 2, size // 2]}
+
+    return {
+        "boardType": board_type,
+        "size": size,
+        "bonusGrid": bonus_grid,
+        "center": [size // 2, size // 2],
+    }
 
 
 @app.post("/api/solve")
 def solve(payload: SolveRequest):
     try:
-        mode = payload.mode if payload.mode in ("fast", "max") else "fast"
-        settings = {
-            "fast": {"limit": 500, "seconds": 8.0, "max_checks": 500_000},
-            "max": {"limit": 1000, "seconds": 25.0, "max_checks": 2_000_000},
-        }[mode]
+        requested_mode = payload.mode if payload.mode in ("fast", "max") else "fast"
+
+        mode_settings = {
+            "fast": {
+                "limit": 500,
+                "seconds": 8.0,
+                "max_checks": 700_000,
+            },
+            "max": {
+                "limit": 1000,
+                "seconds": 25.0,
+                "max_checks": 2_500_000,
+            },
+        }
+
+        settings = mode_settings[requested_mode]
+
         result = generate_moves(
             board=payload.board,
             rack=payload.rack,
@@ -140,7 +164,13 @@ def solve(payload: SolveRequest):
             seconds=settings["seconds"],
             max_checks=settings["max_checks"],
         )
-        return {"suggestions": result["suggestions"], "mode": mode, "debug": result["debug"]}
+
+        return {
+            "suggestions": result["suggestions"],
+            "mode": requested_mode,
+            "debug": result["debug"],
+        }
+
     except Exception as e:
         print("SOLVE ERROR:", e)
         return {"suggestions": [], "error": str(e)}
