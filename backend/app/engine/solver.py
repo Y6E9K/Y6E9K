@@ -41,6 +41,7 @@ class DictionaryIndex:
     word_set: Set[str]
     words: List[str]
     by_length: Dict[int, List[WordEntry]]
+    by_pos_letter: Dict[Tuple[int, int, str], List[WordEntry]]
     sample_words: List[str]
 
 
@@ -65,6 +66,7 @@ def build_dictionary_index(words: Iterable[str]) -> DictionaryIndex:
     word_set: Set[str] = set()
     clean_words: List[str] = []
     by_length: Dict[int, List[WordEntry]] = defaultdict(list)
+    by_pos_letter: Dict[Tuple[int, int, str], List[WordEntry]] = defaultdict(list)
 
     for raw in words:
         word = normalize_word(raw)
@@ -81,15 +83,20 @@ def build_dictionary_index(words: Iterable[str]) -> DictionaryIndex:
             length=len(word),
         )
         by_length[len(word)].append(entry)
+        for pos, ch in enumerate(word):
+            by_pos_letter[(len(word), pos, ch)].append(entry)
 
     clean_words.sort()
     for length in by_length:
         by_length[length].sort(key=lambda e: (-e.score, -e.length, e.word))
+    for key in by_pos_letter:
+        by_pos_letter[key].sort(key=lambda e: (-e.score, -e.length, e.word))
 
     return DictionaryIndex(
         word_set=word_set,
         words=clean_words,
         by_length=dict(by_length),
+        by_pos_letter=dict(by_pos_letter),
         sample_words=clean_words[:50],
     )
 
@@ -341,6 +348,45 @@ def prefilter_entries_pattern(entries: List[WordEntry], fixed_positions: Dict[in
     return out
 
 
+def prefilter_entries_pattern_fast(
+    index: DictionaryIndex,
+    length: int,
+    fixed_positions: Dict[int, str],
+    rack: List[str],
+    board: List[List[Any]],
+):
+    """Aynı v8.2 pattern mantığı, ama sabit harf varsa tüm uzunluk listesini taramak yerine
+    en dar pozisyon-harf indeksinden başlar. Çok dolu tahtada ciddi hız kazandırır.
+    """
+    rack_ctr = rack_counter(rack)
+    rack_set = {k for k, v in rack_ctr.items() if v > 0 and k != "?"}
+    board_set = board_letters_set(board)
+
+    if not fixed_positions:
+        candidates = index.by_length.get(length, [])
+    else:
+        pools = []
+        for pos, ch in fixed_positions.items():
+            pools.append(index.by_pos_letter.get((length, pos, ch), []))
+        if not pools:
+            return []
+        candidates = min(pools, key=len)
+
+    out = []
+    for entry in candidates:
+        word = entry.word
+
+        if fixed_positions and not word_matches_pattern(word, fixed_positions):
+            continue
+
+        if board_has_letters(board) and not (entry.uniq & (rack_set | board_set)):
+            continue
+
+        out.append(entry)
+
+    return out
+
+
 def fits(board: List[List[Any]], word: str, row: int, col: int, direction: str):
     n = board_size(board)
 
@@ -456,6 +502,40 @@ def all_words_valid(board: List[List[Any]], word: str, direction: str, placed: L
             if cw not in word_set:
                 return False, []
             created.append(cw)
+
+    return True, created
+
+
+def all_words_valid_cached(
+    board: List[List[Any]],
+    word: str,
+    direction: str,
+    placed: List[Tuple[int, int, str]],
+    word_set: Set[str],
+    cross_cache: Dict[Tuple[int, int, str, str], Tuple[bool, Tuple[str, ...]]],
+):
+    if word not in word_set:
+        return False, []
+
+    created = [word]
+
+    for r, c, ch in placed:
+        key = (r, c, direction, ch)
+        cached = cross_cache.get(key)
+        if cached is None:
+            cw, _ = cross_word_for_new_tile(board, r, c, ch, direction)
+            if len(cw) > 1 and cw not in word_set:
+                cached = (False, tuple())
+            elif len(cw) > 1:
+                cached = (True, (cw,))
+            else:
+                cached = (True, tuple())
+            cross_cache[key] = cached
+
+        ok, words = cached
+        if not ok:
+            return False, []
+        created.extend(words)
 
     return True, created
 
@@ -634,6 +714,8 @@ def find_best_moves(
     pattern_hits = 0
     fit_hits = 0
     valid_hits = 0
+    expanded_starts_used = 0
+    cross_cache = {}
 
     for length in lengths:
         if time.time() > deadline or checks >= max_checks:
@@ -655,10 +737,18 @@ def find_best_moves(
                     for row, col in candidate_start_positions(board, length, ar, ac, direction):
                         starts.add((row, col))
 
-                # Daha fazla kombinasyon: anchor dışı ama kurala uygun olabilecek tüm slotları da aday yap.
-                # Bu özellikle çok dolu tahtada eski v8.2'nin kaçırdığı desenleri yakalar.
-                if len(anchors) > 18 or sum(1 for r in range(board_n) for c in range(board_n) if get_letter(board, r, c)) >= 35:
+                # Turbo: daha fazla kombinasyon.
+                # Çok dolu tahtada ve/veya çok derin aramada anchor dışı olası slotlar da denenir.
+                board_tile_count_for_expand = sum(1 for r in range(board_n) for c in range(board_n) if get_letter(board, r, c))
+                should_expand = (
+                    board_tile_count_for_expand >= 22
+                    or len(anchors) >= 12
+                    or max_checks >= 4_000_000
+                )
+                if should_expand:
+                    before_count = len(starts)
                     starts.update(all_legalish_start_positions(board, length, direction))
+                    expanded_starts_used += max(0, len(starts) - before_count)
 
             pattern_cache = {}
 
@@ -672,7 +762,7 @@ def find_best_moves(
 
                 cache_key = (length, pattern)
                 if cache_key not in pattern_cache:
-                    pattern_cache[cache_key] = prefilter_entries_pattern(raw_entries, fixed_positions, rack, board)
+                    pattern_cache[cache_key] = prefilter_entries_pattern_fast(index, length, fixed_positions, rack, board)
 
                 entries = pattern_cache[cache_key]
 
@@ -701,7 +791,7 @@ def find_best_moves(
                     if joker_used is None:
                         continue
 
-                    ok, created_words = all_words_valid(board, word, direction, placed, word_set)
+                    ok, created_words = all_words_valid_cached(board, word, direction, placed, word_set, cross_cache)
                     if not ok:
                         continue
 
@@ -757,7 +847,7 @@ def find_best_moves(
         "suggestions": uniq,
         "message": "" if uniq else "Bu taşlarla tahtaya kurallara uygun kelime yerleştirilemedi.",
         "debug": {
-            "engine": "v8.2_pattern_web_plus",
+            "engine": "v8.2_pattern_web_turbo",
             "wordCount": len(index.word_set),
             "rack": list(rack_ctr.elements()),
             "boardSize": board_n,
@@ -768,6 +858,8 @@ def find_best_moves(
             "patternHits": pattern_hits,
             "fitHits": fit_hits,
             "validHits": valid_hits,
+            "expandedStarts": expanded_starts_used,
+            "crossCacheSize": len(cross_cache),
             "returned": len(uniq),
             "fallback": False,
             "timedOut": time.time() > deadline,
@@ -791,7 +883,7 @@ def generate_moves(
             "suggestions": [],
             "message": "Harf alanına en az bir taş gir.",
             "debug": {
-                "engine": "v8.2_pattern_web_plus",
+                "engine": "v8.2_pattern_web_turbo",
                 "reason": "empty_rack",
                 "wordCount": len(index.word_set),
                 "fallback": False,
@@ -803,7 +895,7 @@ def generate_moves(
             "suggestions": [],
             "message": "Sözlük yüklenmedi. backend/data klasörünü kontrol et.",
             "debug": {
-                "engine": "v8.2_pattern_web_plus",
+                "engine": "v8.2_pattern_web_turbo",
                 "reason": "empty_dictionary",
                 "wordCount": 0,
                 "fallback": False,
