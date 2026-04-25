@@ -36,7 +36,7 @@ body {
   align-items: flex-start;
   margin-bottom: 14px;
   width: min(100%, 1328px);
-  margin-left: 0;
+  margin-left: auto;
   margin-right: auto;
 }
 
@@ -97,7 +97,7 @@ body {
   gap: 8px;
   margin-bottom: 16px;
   width: min(100%, 1328px);
-  margin-left: 0;
+  margin-left: auto;
   margin-right: auto;
 }
 
@@ -147,9 +147,9 @@ body {
   grid-template-columns: minmax(0, 920px) minmax(320px, 390px);
   gap: clamp(14px, 1.4vw, 22px);
   align-items: start;
-  justify-content: start;
+  justify-content: center;
   width: min(100%, 1328px);
-  margin-left: 0;
+  margin-left: auto;
   margin-right: auto;
 }
 
@@ -461,3 +461,28 @@ body {
    - The first grid column no longer stretches and creates a large empty gap.
    - Board, rack, and suggestion panel shrink together inside the same max-width area.
 */
+
+/* Centered layout fix:
+   Browser zoom in/out sırasında tüm uygulama bloğu sayfanın ortasında kalır.
+   Tahta ve sağ öneri paneli birlikte merkezlenir; sağ panel köşeye kaçmaz.
+*/
+.topbar,
+.tabs-bar,
+.layout {
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+.layout {
+  justify-content: center !important;
+}
+
+@media (max-width: 1060px) {
+  .topbar,
+  .tabs-bar,
+  .layout {
+    width: 100%;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+}
